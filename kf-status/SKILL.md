@@ -49,18 +49,24 @@ This outputs all **data** sections:
 - **Conflict Risk** — active conflict pairs from `conflicts.yaml`, showing risk level and notes (only appears when active pairs exist)
 - **Blocked** — pending tracks with unmet dependencies and their current statuses
 
-### Step 3 — Assess and recommend
+### Step 3 — Show dispatch recommendations
 
-The CLI output is purely factual. After presenting it, add your **assessment** — the parts that require judgment:
+If developer worktrees exist, run the dispatch script to show prioritized assignments for idle workers:
 
-1. **Prioritization** — If multiple tracks are ready, recommend which to start first and why (e.g., "e2e-infra should go first — 11 tracks depend on it" or "these two are independent and can run in parallel across worktrees")
+```bash
+.agent/kf/bin/kf-dispatch --ref ${PRIMARY_BRANCH}
+```
 
-2. **Bottleneck analysis** — If many tracks are blocked on the same dependency, call it out (e.g., "e2e-infra is the critical path — completing it unblocks 11 tracks")
+This automatically scans worktrees, computes priority scores (unblock factor, conflict avoidance, type diversity), and matches idle workers to available tracks. It limits recommendations to the number of idle worktrees.
 
-3. **Parallelism opportunities** — Identify ready tracks that are independent and can be worked simultaneously by different developer agents
+If no worktrees exist, skip this step.
 
-4. **Recommendations** — Based on the state:
-   - No in-progress tracks + idle workers → suggest starting ready tracks
+### Step 4 — Assess and recommend
+
+The CLI outputs are factual. After presenting them, add brief **assessment**:
+
+1. **Bottleneck analysis** — If many tracks are blocked on the same dependency, call it out
+2. **Recommendations** — Based on the state:
    - No pending tracks → suggest `/kf-architect` to create new work
    - Many completed tracks not archived → suggest `/kf-bulk-archive`
    - In-progress tracks with low progress → note they may be stalled

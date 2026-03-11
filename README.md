@@ -30,7 +30,6 @@ After installing, open Claude Code in any project and run `/kf-getting-started` 
 | `/kf-status` | Display project status and next actions |
 | `/kf-new-track` | Create a new track with spec and plan |
 | `/kf-manage` | Archive, restore, delete, rename tracks |
-| `/kf-dispatch` | AI swarm dispatcher for worker assignments |
 | `/kf-interactive` | General-purpose kf-aware assistant |
 | `/kf-report` | Generate project timeline and velocity reports |
 | `/kf-validate` | Validate project artifacts |
