@@ -27,7 +27,6 @@ After installing, open Claude Code in any project and run `/kf-getting-started` 
 | `/kf-architect` | Research codebase, create track specs |
 | `/kf-developer` | Claim and implement tracks |
 | `/kf-implement` | Execute tasks from implementation plans |
-| `/kf-reviewer` | Review PRs against track specs |
 | `/kf-status` | Display project status and next actions |
 | `/kf-new-track` | Create a new track with spec and plan |
 | `/kf-manage` | Archive, restore, delete, rename tracks |

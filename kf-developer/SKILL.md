@@ -2,7 +2,7 @@
 name: kf-developer
 description: Receive a track ID, validate it is an active unclaimed track, then implement it following the kiloforge workflow. Worker role in the track generation => approval => push to worker pipeline.
 metadata:
-  argument-hint: "<track-id> [--disable-auto-merge] [--with-review]"
+  argument-hint: "<track-id> [--disable-auto-merge]"
 ---
 
 # Kiloforge Developer
@@ -266,163 +266,13 @@ git commit -m "chore: mark track {trackId} complete"
 
 ---
 
-## Phase 4: Review (only with `--with-review`)
-
-This entire phase is **skipped** unless `--with-review` was provided. Without it, proceed directly to Phase 5 (Merge).
-
-### Step 10r — Discover own session ID
-
-Find this agent's session ID so it can be posted on the PR for later `claude --resume`:
-
-```bash
-PROJECT_DIR=$(echo "$PWD" | sed 's|/|-|g; s|^-||')
-SESSION_ID=$(ls -t ~/.claude/projects/-${PROJECT_DIR}/*.jsonl 2>/dev/null | head -1 | xargs basename | sed 's/.jsonl//')
-echo "Session ID: $SESSION_ID"
-```
-
-Record the session ID for use in PR comments.
-
-### Step 10r.1 — Determine remote and platform
-
-Resolve the git remote and PR platform:
-
-1. **Remote name:** Use env var `KF_REMOTE` if set, otherwise `origin`
-2. **PR platform:** Use env var `KF_PR_PLATFORM` if set (`github` or `gitea`), otherwise auto-detect:
-   ```bash
-   REMOTE_URL=$(git remote get-url ${REMOTE_NAME})
-   ```
-   - If URL contains `github.com` → `github` (use `gh` CLI)
-   - Otherwise → `gitea` (use `tea` CLI or raw API)
-
-### Step 10r.2 — Push branch and create PR
-
-```bash
-git push ${REMOTE_NAME} kf/{type}/{trackId}
-```
-
-Create PR with session ID embedded:
-
-**GitHub:**
-```bash
-gh pr create \
-  --base ${PRIMARY_BRANCH} \
-  --head kf/{type}/{trackId} \
-  --title "{type}: {track title} ({trackId})" \
-  --body "$(cat <<'EOF'
-## Track
-
-- **Track ID:** {trackId}
-- **Type:** {type}
-- **Tasks:** {completed}/{total}
-
-## Developer Session
-
-\`\`\`
-DEVELOPER_SESSION={session-id}
-DEVELOPER_WORKTREE={worktree-folder-name}
-RESUME_CMD=claude --resume {session-id}
-\`\`\`
-
----
-_Created by kf-developer with --with-review_
-EOF
-)"
-```
-
-**Gitea:**
-```bash
-tea pr create \
-  --base ${PRIMARY_BRANCH} \
-  --head kf/{type}/{trackId} \
-  --title "{type}: {track title} ({trackId})" \
-  --description "..." # same body as above
-```
-
-Record the PR number/URL.
-
-### Step 10r.3 — Wait for review
-
-```
-================================================================================
-                    PR CREATED — WAITING FOR REVIEW
-================================================================================
-Track:      {trackId} - {title}
-Branch:     kf/{type}/{trackId}
-PR:         {pr-url}
-Session:    {session-id}
-
-To trigger a reviewer:
-  claude --worktree reviewer-1 -p "/kf-reviewer {pr-url}"
-
-Or in an existing reviewer worktree:
-  /kf-reviewer {pr-url}
-
-This agent is WAITING. It will resume when review feedback is provided.
-Say "review complete" or paste review feedback to continue.
-================================================================================
-```
-
-**CRITICAL: HALT and wait for user input.** The agent stays alive, preserving full context. It will be unblocked when:
-- The user types feedback directly
-- The user says "review complete" or "approved"
-- A script or the reviewer agent sends input to this terminal
-
-### Step 10r.4 — Process review feedback
-
-When unblocked, determine the review outcome:
-
-1. **Read PR review status:**
-
-   **GitHub:**
-   ```bash
-   gh pr view {pr-number} --json reviews,comments
-   ```
-
-   **Gitea:**
-   ```bash
-   tea pr view {pr-number}
-   ```
-
-2. **If approved (no changes requested):** Proceed to Phase 5 (Merge). The merge process will also clean up the remote branch after merge.
-
-3. **If changes requested:** Read the review comments, then:
-   - Address each comment (fix code, reply to comments)
-   - Commit fixes
-   - Push updates:
-     ```bash
-     git push ${REMOTE_NAME} kf/{type}/{trackId}
-     ```
-   - Reply to PR comments explaining fixes (via `gh pr comment` or `tea pr comment`)
-   - Return to Step 10r.3 (wait for next review round)
-
-### Step 10r.5 — Review cycle limit
-
-Track the number of review iterations. If the review cycle exceeds **5 iterations** without approval:
-
-```
-================================================================================
-                    REVIEW CYCLE LIMIT REACHED
-================================================================================
-Track:      {trackId} - {title}
-PR:         {pr-url}
-Iterations: 5/5
-
-The review process has reached its maximum iteration count.
-Manual intervention required.
-================================================================================
-```
-
-**HALT and wait for user guidance.**
-
----
-
-## Phase 5: Merge
+## Phase 4: Merge
 
 ### Step 10 — Report completion and merge (or wait)
 
 By default, auto-merge is enabled — proceed directly to the merge sequence after implementation completes.
 
-If `--disable-auto-merge` **was** provided (and `--with-review` was not used or review is already approved):
+If `--disable-auto-merge` **was** provided:
 
 ```
 ================================================================================
@@ -440,11 +290,9 @@ Ready to merge. Say "merge" to begin the lock -> rebase -> verify -> merge seque
 
 If `--disable-auto-merge` was **not** provided (default): skip the pause and proceed directly to the merge sequence.
 
-If `--with-review` **was** provided and review is approved: proceed directly to the merge sequence (review approval implies merge authorization).
-
 ### Step 11 — Merge sequence
 
-When the user says "merge" (or immediately if auto-merge is enabled (default) / post-review-approval), execute the full merge protocol. The developer performs an **implementation merge** — verification is mandatory.
+When the user says "merge" (or immediately if auto-merge is enabled (default)), execute the full merge protocol. The developer performs an **implementation merge** — verification is mandatory.
 
 For the full merge protocol details, see `kf-merge-protocol/SKILL.md`.
 
@@ -492,11 +340,6 @@ git checkout {worker-home-branch}
 for b in $(git branch --list "kf/stash/{trackId}/*" | sed 's/^[* ]*//'); do
   git branch -D "$b"
 done
-
-# If --with-review was used: clean up remote branch and close PR
-# GitHub: gh pr close {pr-number} && git push ${REMOTE_NAME} --delete kf/{type}/{trackId}
-# Gitea: tea pr close {pr-number} && git push ${REMOTE_NAME} --delete kf/{type}/{trackId}
-
 ```
 
 Report:
@@ -541,8 +384,6 @@ Developer is ready for next track.
 |------|--------|
 | (none) | Default: implement, auto-merge (poll merge lock if held) |
 | `--disable-auto-merge` | Pause after implementation; wait for explicit "merge" command |
-| `--with-review` | After implementation: push, create PR, wait for review, then merge. Review approval implies merge authorization |
-| `--disable-auto-merge --with-review` | Review cycle runs, and after approval pause for explicit "merge" command |
 
 ## Environment Variables
 
@@ -563,7 +404,7 @@ Detection is automatic. Run `kf-merge-lock status` to inspect current lock state
 
 1. **ALWAYS validate before implementing** — never start work on an invalid or claimed track
 2. **ALWAYS read track state from the primary branch** — resolve from `.agent/kf/config.yaml`, default `main`. Use `git show ${PRIMARY_BRANCH}:<path>`, not local working tree
-3. **NEVER push to remote unless `--with-review`** — without review flag, all branches are local only
+3. **NEVER push to remote** — all branches are local only
 4. **Auto-merge is the default** — only pause for explicit "merge" command when `--disable-auto-merge` is provided
 5. **ALWAYS verify after rebase** — full verification after rebase, before merge
 6. **ALWAYS use --ff-only** — clean fast-forward merges only
@@ -571,6 +412,5 @@ Detection is automatic. Run `kf-merge-lock status` to inspect current lock state
 8. **HALT on any failure** — do not continue past errors without user input
 9. **Follow workflow.yaml** — all TDD, commit, and verification rules apply
 10. **Return to home branch** — always checkout back to `worker-*` branch after merge
-11. **Clean up remote on merge** — if `--with-review`, delete remote branch and close PR after merge
-12. **ALWAYS send heartbeat** — start heartbeat after lock acquire, stop after release
+11. **ALWAYS send heartbeat** — start heartbeat after lock acquire, stop after release
 13. **NEVER force-remove another worker's lock** — if the merge lock is held, HALT and wait for user instructions. Do not `rm -rf` the lock directory or force-release HTTP locks held by others.

@@ -24,7 +24,7 @@ Systematic health audit and repair agent for Kiloforge project management artifa
 ## Do not use this skill when
 
 - You need to audit codebase reliability (use `/kf-reliability`)
-- You need to review track content quality (use `/kf-reviewer`)
+- You need to review track content quality
 - You need to create new tracks (use `/kf-architect`)
 - The project has no Kiloforge artifacts (use `/kf-setup` first)
 
