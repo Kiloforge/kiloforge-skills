@@ -61,10 +61,13 @@ git worktree list
 **Resolve the primary branch** from `.agent/kf/config.yaml`:
 
 ```bash
-PRIMARY_BRANCH=$( \
-  (cat .agent/kf/config.yaml 2>/dev/null || git show HEAD:.agent/kf/config.yaml 2>/dev/null) \
-  | grep '^primary_branch:' | awk '{print $2}' | sed "s/[\"']//g" \
-)
+PRIMARY_BRANCH=""
+if [ -f .agent/kf/config.yaml ]; then
+  PRIMARY_BRANCH=$(awk '/^primary_branch:/{print $2}' .agent/kf/config.yaml)
+fi
+if [ -z "$PRIMARY_BRANCH" ]; then
+  PRIMARY_BRANCH=$(git show HEAD:.agent/kf/config.yaml 2>/dev/null | awk '/^primary_branch:/{print $2}')
+fi
 PRIMARY_BRANCH="${PRIMARY_BRANCH:-main}"
 echo "Primary branch: $PRIMARY_BRANCH"
 ```
