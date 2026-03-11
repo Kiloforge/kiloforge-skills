@@ -59,7 +59,7 @@ git worktree list
 ```bash
 PRIMARY_BRANCH=$( \
   (cat .agent/kf/config.yaml 2>/dev/null || git show HEAD:.agent/kf/config.yaml 2>/dev/null) \
-  | grep '^primary_branch:' | awk '{print $2}' | tr -d '"'"'"' \
+  | grep '^primary_branch:' | awk '{print $2}' | sed "s/[\"']//g" \
 )
 PRIMARY_BRANCH="${PRIMARY_BRANCH:-main}"
 echo "Primary branch: $PRIMARY_BRANCH"
