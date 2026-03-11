@@ -74,14 +74,40 @@ Initialize or resume Kiloforge project setup. This command creates foundational 
    ```
    Store as `"auto_commit": true|false`.
 
-2. **Verify Python and PyYAML:**
+2. **Verify Python 3 and PyYAML:**
 
-   Kiloforge CLI tools require Python 3 and PyYAML. Check availability:
+   Kiloforge CLI tools require Python 3 and PyYAML.
+
+   **Check Python 3:**
+   ```bash
+   python3 --version 2>/dev/null
+   ```
+
+   If Python 3 is not available, ask the user:
+   ```
+   Kiloforge CLI tools require Python 3, which was not found on this system.
+
+   May I install Python on this machine?
+
+   1. Yes, install Python
+   2. No, I'll install it myself
+   ```
+
+   If the user chooses 1, detect the platform and install:
+   - **macOS:** `brew install python3` (if brew available), otherwise suggest https://python.org
+   - **Linux (Debian/Ubuntu):** `sudo apt-get install -y python3 python3-pip`
+   - **Linux (Fedora/RHEL):** `sudo dnf install -y python3 python3-pip`
+   - **Linux (Arch):** `sudo pacman -S --noconfirm python python-pip`
+   - **Windows:** `winget install Python.Python.3` (if winget available)
+
+   If no package manager is detected, suggest downloading from https://python.org.
+
+   If the user chooses 2: **HALT** — Python 3 is required to continue.
+
+   **Check PyYAML:**
    ```bash
    python3 -c "import yaml; print('PyYAML', yaml.__version__)" 2>/dev/null
    ```
-
-   If Python 3 is not available: display error and **HALT** — Python 3 is required.
 
    If PyYAML is missing, ask the user:
    ```
@@ -95,7 +121,7 @@ Initialize or resume Kiloforge project setup. This command creates foundational 
    ```bash
    python3 -m pip install pyyaml
    ```
-   Verify it succeeded. If pip is not available, suggest `python3 -m ensurepip --default-pip` first.
+   Verify it succeeded. If pip is not available, try `python3 -m ensurepip --default-pip` first, then retry.
 
 3. Check if `.agent/kf/` directory already exists in the project root:
    - If `.agent/kf/product.yaml` or `.agent/kf/tracks.yaml` exists: Ask user whether to resume setup or reinitialize
