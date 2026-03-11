@@ -27,11 +27,20 @@ Execute tasks from a track's implementation plan, following the workflow rules d
 
 ## Pre-flight Checks
 
-1. **Sync with primary branch** — your working tree may be stale:
+1. **Resolve primary branch:**
    ```bash
-   git reset --hard main
+   PRIMARY_BRANCH=$( \
+     (cat .agent/kf/config.yaml 2>/dev/null || git show HEAD:.agent/kf/config.yaml 2>/dev/null) \
+     | grep '^primary_branch:' | awk '{print $2}' | tr -d '"'"'"' \
+   )
+   PRIMARY_BRANCH="${PRIMARY_BRANCH:-main}"
    ```
-   This ensures you see the latest tracks, dependencies, and project state. Without this, `kf-track get` and `kf-track list` may report tracks as "not found" even if they exist on main.
+
+2. **Sync with primary branch** — your working tree may be stale:
+   ```bash
+   git reset --hard ${PRIMARY_BRANCH}
+   ```
+   This ensures you see the latest tracks, dependencies, and project state. Without this, `kf-track get` and `kf-track list` may report tracks as "not found" even if they exist on the primary branch.
 
 2. Verify Kiloforge is initialized:
    - Check `.agent/kf/product.yaml` exists

@@ -26,7 +26,10 @@ Display the current status of the Kiloforge project, including overall progress,
 Read the primary branch from config:
 
 ```bash
-PRIMARY_BRANCH=$(git show main:.agent/kf/config.yaml 2>/dev/null | grep '^primary_branch:' | awk '{print $2}')
+PRIMARY_BRANCH=$( \
+  (cat .agent/kf/config.yaml 2>/dev/null || git show HEAD:.agent/kf/config.yaml 2>/dev/null) \
+  | grep '^primary_branch:' | awk '{print $2}' | tr -d '"'"'"' \
+)
 PRIMARY_BRANCH="${PRIMARY_BRANCH:-main}"
 ```
 

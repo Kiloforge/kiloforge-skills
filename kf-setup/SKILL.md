@@ -29,18 +29,43 @@ Initialize or resume Kiloforge project setup. This command creates foundational 
 
 ## Pre-flight Checks
 
-1. Check if `.agent/kf/` directory already exists in the project root:
+1. **Determine primary branch:**
+   ```
+   Kiloforge artifacts must live on your primary coordination branch
+   for tracks and other kf-* skills to function properly.
+
+   What is your primary branch?
+
+   1. main (default)
+   2. master
+   3. develop
+   4. Type your own
+   ```
+   Store the answer in `setup_state.json` as `"primary_branch": "<branch>"`.
+
+   Then ask:
+   ```
+   Should I commit the setup artifacts to {primary_branch} when complete?
+
+   1. Yes, commit to {primary_branch} (recommended)
+   2. No, I'll commit manually
+   ```
+   Store as `"auto_commit": true|false`.
+
+2. Check if `.agent/kf/` directory already exists in the project root:
    - If `.agent/kf/product.yaml` or `.agent/kf/tracks.yaml` exists: Ask user whether to resume setup or reinitialize
    - If `.agent/kf/setup_state.json` exists with incomplete status: Offer to resume from last step
 
-2. Detect project type by checking for existing indicators:
+3. Detect project type by checking for existing indicators:
    - **Greenfield (new project)**: No .git, no package.json, no requirements.txt, no go.mod, no src/ directory
    - **Brownfield (existing project)**: Any of the above exist
 
-3. Load or create `.agent/kf/setup_state.json`:
+4. Load or create `.agent/kf/setup_state.json`:
    ```json
    {
      "status": "in_progress",
+     "primary_branch": "main",
+     "auto_commit": true,
      "project_type": "greenfield|brownfield",
      "current_section": "product|guidelines|tech_stack|workflow|styleguides",
      "current_question": 1,
@@ -218,7 +243,7 @@ Suggested:
 5. Type your own
 ```
 
-### Section 4: Workflow Preferences (max 4 questions)
+### Section 4: Workflow Preferences (max 2 questions)
 
 **Q1: TDD Strictness**
 
@@ -242,27 +267,12 @@ Suggested:
 3. Squash commits per task
 ```
 
-**Q3: Code Review Requirements**
+**Defaults (not asked):**
 
-```
-What code review policy?
+The following are set automatically and do not require user input:
 
-Suggested:
-1. Required for all changes
-2. Required for non-trivial changes
-3. Optional / self-review OK
-```
-
-**Q4: Verification Checkpoints**
-
-```
-When should manual verification be required?
-
-Suggested:
-1. After each phase completion
-2. After each task completion
-3. Only at track completion
-```
+- **Code review**: Optional / self-review OK
+- **Verification checkpoints**: Track completion only — manual verification is required only when an entire track is complete. Individual phases and tasks do not require manual sign-off.
 
 ### Section 5: Code Style Guides (max 2 questions)
 
@@ -303,7 +313,7 @@ After completing Q&A, generate the following files:
 
 ```yaml
 project_name: "{project name}"
-primary_branch: main
+primary_branch: "{primary_branch from pre-flight}"
 ```
 
 ### 2. .agent/kf/product.yaml
@@ -339,9 +349,9 @@ Template populated with:
 
 - TDD policy and strictness level
 - Commit strategy and conventions
-- Code review requirements
-- Verification checkpoint rules
-- Task lifecycle definition
+- Code review: "Optional / self-review OK" (default)
+- Verification checkpoints: "Track completion only" (default)
+- Task lifecycle definition (pending → in-progress → testing → complete → blocked)
 
 ### 6. .agent/kf/tracks.yaml
 
@@ -404,7 +414,12 @@ After each successful file creation:
 When all files are created:
 
 1. Set `setup_state.json` status to "complete"
-2. Display summary:
+2. **If `auto_commit` is true:**
+   - Verify the current branch is `{primary_branch}`. If not, warn and ask to switch.
+   - Stage all `.agent/kf/` files: `git add .agent/kf/`
+   - Commit: `git commit -m "chore(kf): initialize kiloforge project artifacts"`
+   - Inform the user the commit was made to `{primary_branch}`
+3. Display summary:
 
    ```
    Kiloforge setup complete!
@@ -420,9 +435,12 @@ When all files are created:
    - .agent/kf/tracks/conflicts.yaml
    - .agent/kf/code_styleguides/[languages]
 
+   [If committed: "Artifacts committed to {primary_branch}."]
+   [If not committed: "⚠ Remember to commit .agent/kf/ to {primary_branch} — kf-* skills require these artifacts on the primary branch."]
+
    Next steps:
    1. Review generated files and customize as needed
-   2. Run /kf-new-track to create your first track
+   2. Run /kf-architect to design and create your first track
    ```
 
 ## Resume Handling

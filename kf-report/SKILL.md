@@ -27,9 +27,14 @@ Reports are written to `.agent/kf/_reports/` as markdown files.
 
 ## Pre-flight Checks
 
-1. **Sync with primary branch** — your working tree may be stale:
+1. **Resolve and sync with primary branch** — your working tree may be stale:
    ```bash
-   git reset --hard main
+   PRIMARY_BRANCH=$( \
+     (cat .agent/kf/config.yaml 2>/dev/null || git show HEAD:.agent/kf/config.yaml 2>/dev/null) \
+     | grep '^primary_branch:' | awk '{print $2}' | tr -d '"'"'"' \
+   )
+   PRIMARY_BRANCH="${PRIMARY_BRANCH:-main}"
+   git reset --hard ${PRIMARY_BRANCH}
    ```
    This ensures you see the latest track statuses, completed/archived tracks, and project metadata. Without this, reports may show outdated data or miss recently completed tracks.
 
@@ -613,7 +618,10 @@ After writing report files, merge them to the primary branch so all worktrees ca
 ### Step 1 — Resolve primary branch and record home branch
 
 ```bash
-PRIMARY_BRANCH=$(git show main:.agent/kf/config.yaml 2>/dev/null | grep '^primary_branch:' | awk '{print $2}')
+PRIMARY_BRANCH=$( \
+  (cat .agent/kf/config.yaml 2>/dev/null || git show HEAD:.agent/kf/config.yaml 2>/dev/null) \
+  | grep '^primary_branch:' | awk '{print $2}' | tr -d '"'"'"' \
+)
 PRIMARY_BRANCH="${PRIMARY_BRANCH:-main}"
 HOME_BRANCH=$(git branch --show-current)
 MAIN_WORKTREE=$(git worktree list | grep -E '\['"$PRIMARY_BRANCH"'\]' | awk '{print $1}')

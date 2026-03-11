@@ -55,13 +55,16 @@ git worktree list
 
 - The current branch should match `worker-*` (this is the **home branch**)
 - If not on a `worker-*` branch, warn but continue
-- Record the **main worktree path** from `git worktree list` — needed for merge operations
+- Record the **primary branch worktree path** from `git worktree list` — needed for merge operations
 - Record the **home branch** (the `worker-*` branch) — to return to after merge
 
 **Resolve the primary branch** from `.agent/kf/config.yaml`:
 
 ```bash
-PRIMARY_BRANCH=$(git show main:.agent/kf/config.yaml 2>/dev/null | grep '^primary_branch:' | awk '{print $2}')
+PRIMARY_BRANCH=$( \
+  (cat .agent/kf/config.yaml 2>/dev/null || git show HEAD:.agent/kf/config.yaml 2>/dev/null) \
+  | grep '^primary_branch:' | awk '{print $2}' | tr -d '"'"'"' \
+)
 PRIMARY_BRANCH="${PRIMARY_BRANCH:-main}"
 echo "Primary branch: $PRIMARY_BRANCH"
 ```

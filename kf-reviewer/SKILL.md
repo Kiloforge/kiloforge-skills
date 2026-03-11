@@ -48,7 +48,12 @@ The reviewer works from its own worktree but reads code via the PR diff and by c
 Before any track lookups or validation, sync to the latest state. Your worktree may be stale — other developers and architects merge continuously:
 
 ```bash
-git reset --hard main
+PRIMARY_BRANCH=$( \
+  (cat .agent/kf/config.yaml 2>/dev/null || git show HEAD:.agent/kf/config.yaml 2>/dev/null) \
+  | grep '^primary_branch:' | awk '{print $2}' | tr -d '"'"'"' \
+)
+PRIMARY_BRANCH="${PRIMARY_BRANCH:-main}"
+git reset --hard ${PRIMARY_BRANCH}
 ```
 
 This ensures `kf-track-content show`, `kf-track get`, and file reads see the latest track specs and project context.
@@ -138,7 +143,7 @@ tea pr diff {pr-number}
 For large diffs, also fetch the PR branch locally for deeper inspection:
 ```bash
 git fetch ${REMOTE_NAME} {head-branch}
-git log --oneline main..FETCH_HEAD
+git log --oneline ${PRIMARY_BRANCH}..FETCH_HEAD
 ```
 
 ### Step 6 — Review the changes

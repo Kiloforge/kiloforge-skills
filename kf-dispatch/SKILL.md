@@ -29,7 +29,10 @@ Swarm dispatcher that reviews project state (worktrees, active tracks, dependenc
 ### Step 1 — Resolve primary branch
 
 ```bash
-PRIMARY_BRANCH=$(git show main:.agent/kf/config.yaml 2>/dev/null | grep '^primary_branch:' | awk '{print $2}')
+PRIMARY_BRANCH=$( \
+  (cat .agent/kf/config.yaml 2>/dev/null || git show HEAD:.agent/kf/config.yaml 2>/dev/null) \
+  | grep '^primary_branch:' | awk '{print $2}' | tr -d '"'"'"' \
+)
 PRIMARY_BRANCH="${PRIMARY_BRANCH:-main}"
 ```
 
@@ -227,7 +230,7 @@ Workers: 0 idle, {active_count} active
 All workers are actively implementing tracks. No dispatch needed.
 To add capacity, create a new worktree:
 
-  git worktree add developer-{N} main
+  git worktree add developer-{N} ${PRIMARY_BRANCH}
 
 ================================================================================
 ```
@@ -253,8 +256,8 @@ If `git worktree list` shows only one worktree (the main worktree) and no `devel
 ERROR: No developer worktrees found.
 
 Create worktrees for developer agents:
-  git worktree add developer-1 main
-  git worktree add developer-2 main
+  git worktree add developer-1 ${PRIMARY_BRANCH}
+  git worktree add developer-2 ${PRIMARY_BRANCH}
 ```
 
 ### Track CLI Not Found

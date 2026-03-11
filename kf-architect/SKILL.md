@@ -1,6 +1,6 @@
 ---
 name: kf-architect
-description: "Project architect: research the codebase and distill feature requests into well-scoped kiloforge tracks with specs and implementation plans. Splits large work into multiple tracks (including BE/FE splits). Merges track artifacts to main so developer workers can claim them."
+description: "Project architect: research the codebase and distill feature requests into well-scoped kiloforge tracks with specs and implementation plans. Splits large work into multiple tracks (including BE/FE splits). Merges track artifacts to the primary branch so developer workers can claim them."
 metadata:
   argument-hint: "<prompt describing the desired feature/change>"
 ---
@@ -9,7 +9,7 @@ metadata:
 
 You are a **project architect**. Your job is to take a user's feature request or change description, deeply research the codebase and project context, and distill that understanding into well-scoped track specifications with implementation plans. You produce self-contained work packages that developer workers can pick up and implement without needing additional context.
 
-Generate well-scoped kiloforge tracks by researching the codebase, project context, and existing implementation. Takes a user prompt and produces one or more track specifications with implementation plans, then merges them to main so developers can claim them.
+Generate well-scoped kiloforge tracks by researching the codebase, project context, and existing implementation. Takes a user prompt and produces one or more track specifications with implementation plans, then merges them to the primary branch so developers can claim them.
 
 ## Use this skill when
 
@@ -52,9 +52,22 @@ git worktree list
 
 - The current branch should match `architect-*`
 - If not on a `architect-*` branch, warn but continue (the user may be transitioning)
-- Record the **main worktree path** from `git worktree list` — needed for merge operations
+- Record the **primary branch worktree path** from `git worktree list` — needed for merge operations
 
-**All track state reads should come from main** (via `git show main:<path>`) to see the latest committed state, not the local working tree which may be stale.
+### Step 0a — Resolve primary branch
+
+```bash
+PRIMARY_BRANCH=$( \
+  (cat .agent/kf/config.yaml 2>/dev/null || git show HEAD:.agent/kf/config.yaml 2>/dev/null) \
+  | grep '^primary_branch:' | awk '{print $2}' | tr -d '"'"'"' \
+)
+PRIMARY_BRANCH="${PRIMARY_BRANCH:-main}"
+echo "Primary branch: $PRIMARY_BRANCH"
+```
+
+Record `PRIMARY_BRANCH` for all subsequent operations. Use `${PRIMARY_BRANCH}` everywhere a branch reference is needed — never hardcode `main`.
+
+**All track state reads should come from the primary branch** (via `git show ${PRIMARY_BRANCH}:<path>`) to see the latest committed state, not the local working tree which may be stale.
 
 ---
 
@@ -62,35 +75,35 @@ git worktree list
 
 ### Step 1 — Verify Kiloforge is initialized
 
-Check that these files exist (read from main):
+Check that these files exist (read from the primary branch):
 ```bash
-git show main:.agent/kf/product.yaml > /dev/null 2>&1
-git show main:.agent/kf/tech-stack.yaml > /dev/null 2>&1
-git show main:.agent/kf/tracks.yaml > /dev/null 2>&1
+git show ${PRIMARY_BRANCH}:.agent/kf/product.yaml > /dev/null 2>&1
+git show ${PRIMARY_BRANCH}:.agent/kf/tech-stack.yaml > /dev/null 2>&1
+git show ${PRIMARY_BRANCH}:.agent/kf/tracks.yaml > /dev/null 2>&1
 ```
 
 If missing: Display error and suggest running `/kf-setup` first. **HALT.**
 
-### Step 2 — Sync with main
+### Step 2 — Sync with primary branch
 
-Before doing any work, ensure the local branch is up to date with main:
+Before doing any work, ensure the local branch is up to date with the primary branch:
 
 ```bash
-git reset --hard main
+git reset --hard ${PRIMARY_BRANCH}
 ```
 
 This ensures you have the latest track state, including tracks that other generators or developers may have merged.
 
 ### Step 3 — Load project context
 
-Read all of these (from working tree, now synced with main):
+Read all of these (from working tree, now synced with the primary branch):
 
 1. **Product context:** `.agent/kf/product.yaml`
 2. **Product guidelines:** `.agent/kf/product-guidelines.yaml` (if exists)
 3. **Tech stack:** `.agent/kf/tech-stack.yaml`
-4. **Project index:** Run `.agent/kf/bin/kf-track index --ref main` (generated summary of all tracks)
-5. **Quick links:** Run `.agent/kf/bin/kf-track quick-links show --ref main` (navigation links)
-6. **Track states:** `.agent/kf/tracks.yaml` (YAML registry — use `.agent/kf/bin/kf-track list --ref main` to query)
+4. **Project index:** Run `.agent/kf/bin/kf-track index --ref ${PRIMARY_BRANCH}` (generated summary of all tracks)
+5. **Quick links:** Run `.agent/kf/bin/kf-track quick-links show --ref ${PRIMARY_BRANCH}` (navigation links)
+6. **Track states:** `.agent/kf/tracks.yaml` (YAML registry — use `.agent/kf/bin/kf-track list --ref ${PRIMARY_BRANCH}` to query)
 7. **Dependency graph:** `.agent/kf/tracks/deps.yaml` (adjacency list of track dependencies)
 8. **Code style guides:** `.agent/kf/code_styleguides/` (all files, if present)
 
@@ -454,34 +467,34 @@ multi-dep-track_20260309000002Z:
 
 ---
 
-## Phase 5: Merge to Main
+## Phase 5: Merge to Primary Branch
 
-The architect must merge its track artifacts to main so that developer workers can see and claim them. This merge is lightweight — no test verification required since only `.agent/kf/` files are changed.
+The architect must merge its track artifacts to the primary branch so that developer workers can see and claim them. This merge is lightweight — no test verification required since only `.agent/kf/` files are changed.
 
 ### Step 11 — Pre-merge: Reconcile track state
 
-Before merging, check if main has advanced since we synced (other generators or developers may have merged):
+Before merging, check if the primary branch has advanced since we synced (other generators or developers may have merged):
 
 ```bash
-git log --oneline main..HEAD   # our new commits
-git log --oneline HEAD..main   # commits on main we don't have
+git log --oneline ${PRIMARY_BRANCH}..HEAD   # our new commits
+git log --oneline HEAD..${PRIMARY_BRANCH}   # commits on primary branch we don't have
 ```
 
-If main has advanced:
+If the primary branch has advanced:
 
-1. **Check for track state conflicts.** Read the current `tracks.yaml` from main:
+1. **Check for track state conflicts.** Read the current `tracks.yaml` from the primary branch:
    ```bash
    .agent/kf/bin/kf-track list --active --json
-   # or from main directly:
-   git show main:.agent/kf/tracks.yaml
+   # or from the primary branch directly:
+   git show ${PRIMARY_BRANCH}:.agent/kf/tracks.yaml
    ```
 
-2. **Identify tracks whose state changed on main** since we started:
+2. **Identify tracks whose state changed on the primary branch** since we started:
    - Tracks that moved from `"pending"` to `"in-progress"` or `"completed"` (claimed or completed by a developer)
    - New tracks added by another generator
    - Tracks that were archived or removed
 
-3. **Our merge only adds new tracks** — it should not modify the status of existing tracks. If our `tracks.yaml` edits conflict with main's state, main's state wins for existing tracks. Only our new track entries should be added.
+3. **Our merge only adds new tracks** — it should not modify the status of existing tracks. If our `tracks.yaml` edits conflict with the primary branch's state, the primary branch's state wins for existing tracks. Only our new track entries should be added.
 
 ### Step 12 — Acquire merge lock and merge
 
@@ -563,20 +576,20 @@ If lock held: report and **HALT** (wait for other worker to finish, then retry).
 
 **From this point: call `release_lock` on ANY failure.**
 
-#### 12b. Rebase onto latest main
+#### 12b. Rebase onto latest primary branch
 
 ```bash
-if ! git rebase main; then
+if ! git rebase ${PRIMARY_BRANCH}; then
   echo "Rebase conflict detected — resolving track state files..."
 fi
 ```
 
 **On conflict — simplified resolution for track state files:**
 
-Track state files (`tracks.yaml`, `deps.yaml`, `conflicts.yaml`) are append/update structures where main's version is always ground truth (it reflects all other workers' completions). Accept main's version, then re-apply your additions via CLI:
+Track state files (`tracks.yaml`, `deps.yaml`, `conflicts.yaml`) are append/update structures where the primary branch's version is always ground truth (it reflects all other workers' completions). Accept the primary branch's version, then re-apply your additions via CLI:
 
 ```bash
-# Accept main's version of all track state files
+# Accept the primary branch's version of all track state files
 git checkout --theirs .agent/kf/tracks.yaml .agent/kf/tracks/deps.yaml .agent/kf/tracks/conflicts.yaml 2>/dev/null
 git add .agent/kf/tracks.yaml .agent/kf/tracks/deps.yaml .agent/kf/tracks/conflicts.yaml 2>/dev/null
 
@@ -603,7 +616,7 @@ If a **non-state file** conflicts (e.g., per-track `track.yaml`), that is a genu
 
 If rebase still fails after resolution: `release_lock`, report, **HALT**.
 
-#### 12c. Fast-forward merge into main
+#### 12c. Fast-forward merge into primary branch
 
 **No test verification needed** — architect only modifies `.agent/kf/` artifacts.
 
@@ -620,12 +633,12 @@ fi
 
 On failure: lock released. Report and **HALT**.
 
-#### 12d. Reset to main
+#### 12d. Reset to primary branch
 
-After successful merge, reset the generator branch to main:
+After successful merge, reset the generator branch to the primary branch:
 
 ```bash
-git reset --hard main
+git reset --hard ${PRIMARY_BRANCH}
 ```
 
 This keeps the generator in sync for the next track generation cycle.
@@ -664,10 +677,10 @@ Dependency order (if applicable):
 
 The architect is responsible for maintaining track state correctness. This means:
 
-1. **Never overwrite existing track states** — if a track was `[~]` or `[x]` on main, do not reset it to `[ ]`
-2. **Always read from main before writing** — use `git show main:<path>` to get current state
+1. **Never overwrite existing track states** — if a track was `[~]` or `[x]` on the primary branch, do not reset it to `[ ]`
+2. **Always read from the primary branch before writing** — use `git show ${PRIMARY_BRANCH}:<path>` to get current state
 3. **New tracks only** — the generator adds new `[ ]` entries; it never modifies existing entries
-4. **Conflict resolution favors main** — on rebase conflict, accept main's track state files (`tracks.yaml`, `deps.yaml`, `conflicts.yaml`) via `git checkout --theirs`, then re-apply additions via CLI (see Step 12b)
+4. **Conflict resolution favors the primary branch** — on rebase conflict, accept the primary branch's track state files (`tracks.yaml`, `deps.yaml`, `conflicts.yaml`) via `git checkout --theirs`, then re-apply additions via CLI (see Step 12b)
 
 ---
 
@@ -678,10 +691,10 @@ The architect is responsible for maintaining track state correctness. This means
 3. **ALWAYS split large work** — if >15-20 tasks, break into smaller tracks
 4. **NEVER create track files before approval** — present for review first
 5. **ALWAYS note when unable to generate** — if the prompt is unclear or infeasible, say so explicitly rather than generating a vague track
-6. **ALWAYS merge after creation** — tracks must be merged to main so developers can see them
+6. **ALWAYS merge after creation** — tracks must be merged to the primary branch so developers can see them
 7. **ALWAYS check for overlap** — verify no active tracks already cover this work
-8. **ALWAYS read state from main** — use `git show main:<path>` for track statuses
-9. **NEVER overwrite existing track states** — main's state for existing tracks is authoritative
+8. **ALWAYS read state from the primary branch** — use `git show ${PRIMARY_BRANCH}:<path>` for track statuses
+9. **NEVER overwrite existing track states** — the primary branch's state for existing tracks is authoritative
 10. **NEVER push to remote** — all operations are local only
 11. **ONE merge at a time** — enforce via cross-worktree merge lock (HTTP preferred, mkdir fallback)
 12. **ALWAYS send heartbeat** — start heartbeat after lock acquire, stop after release

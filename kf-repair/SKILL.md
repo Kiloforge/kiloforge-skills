@@ -95,7 +95,10 @@ Then proceed to the full audit.
 ### Step 1 — Resolve primary branch
 
 ```bash
-PRIMARY_BRANCH=$(git show main:.agent/kf/config.yaml 2>/dev/null | grep '^primary_branch:' | awk '{print $2}')
+PRIMARY_BRANCH=$( \
+  (cat .agent/kf/config.yaml 2>/dev/null || git show HEAD:.agent/kf/config.yaml 2>/dev/null) \
+  | grep '^primary_branch:' | awk '{print $2}' | tr -d '"'"'"' \
+)
 PRIMARY_BRANCH="${PRIMARY_BRANCH:-main}"
 echo "Primary branch: $PRIMARY_BRANCH"
 ```
