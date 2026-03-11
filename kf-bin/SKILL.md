@@ -54,6 +54,7 @@ For detailed platform-specific installation instructions (macOS, Linux, Windows)
 | `kf-claim.py` | Per-worktree track claim lock (acquire, release, list, find) |
 | `kf-dispatch.py` | Compute dispatch assignments for idle developer worktrees |
 | `kf-worktree-env.py` | Detect git worktree context and export env vars |
+| `kf-install.py` | Install or update CLI tools in a project (venv, scripts, shebangs) |
 
 ## Instructions
 

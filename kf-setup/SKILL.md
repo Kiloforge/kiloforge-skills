@@ -483,25 +483,23 @@ mkdir -p .agent/kf/tracks
 
 ### 8. .agent/kf/bin/ — CLI tools
 
-Install all Kiloforge CLI tools from the skills repo `bin/` directory:
+Install all Kiloforge CLI tools using the install script:
 
 ```bash
-mkdir -p .agent/kf/bin
-cp "$SKILL_DIR/../kf-bin/scripts/"* .agent/kf/bin/
-chmod +x .agent/kf/bin/*
-
-# Update Python script shebangs to use the project-local venv
-KF_PYTHON="$(pwd)/.agent/kf/.venv/bin/python"
-for f in .agent/kf/bin/*; do
-  if head -1 "$f" | grep -q python; then
-    sed -i.bak "1s|.*|#!$KF_PYTHON|" "$f" && rm -f "$f.bak"
-  fi
-done
+python3 "$SKILL_DIR/../kf-bin/scripts/kf-install.py" --project-dir "$(pwd)"
 ```
+
+This handles everything in one call:
+- Copies all scripts and `lib/` to `.agent/kf/bin/`
+- Creates the project-local venv at `.agent/kf/.venv` (if not already done in pre-flight)
+- Installs PyYAML
+- Rewrites shebangs to use the project-local venv
+- Cleans up legacy non-.py scripts from older installs
+- Ensures `.agent/kf/.gitignore` contains `.venv`
 
 The `$SKILL_DIR` variable resolves to the directory containing this skill's `SKILL.md`. The `kf-bin/scripts/` directory is one level up (at the skills repo root, inside the `kf-bin` skill).
 
-Python scripts are rewritten to use the project-local venv (`.agent/kf/.venv/bin/python`) so they have access to PyYAML without polluting the system Python.
+**If `$SKILL_DIR` is not available** (e.g., running setup outside of the skill framework), use `--skills-dir` to specify the kiloforge-skills repo path manually.
 
 This installs the following tools:
 
@@ -516,16 +514,7 @@ This installs the following tools:
 | `kf-claim` | python3 | Per-worktree track claim lock (acquire, release, list, find) |
 | `kf-dispatch` | python3 | Compute dispatch assignments for idle developer worktrees |
 | `kf-worktree-env` | python3 | Detect git worktree context and export env vars |
-
-**If `$SKILL_DIR` is not available** (e.g., running setup outside of the skill framework), prompt the user:
-
-```
-The Kiloforge CLI tools could not be found at the expected location.
-
-These tools are required for track management. Options:
-1. Provide the path to the kiloforge-skills repo
-2. Skip for now (tracks cannot be managed until tools are installed)
-```
+| `kf-install` | python3 | Install or update CLI tools in a project |
 
 ### 9. .agent/kf/code_styleguides/
 
