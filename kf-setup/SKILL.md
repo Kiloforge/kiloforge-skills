@@ -30,16 +30,38 @@ Initialize or resume Kiloforge project setup. This command creates foundational 
 ## Pre-flight Checks
 
 1. **Determine primary branch:**
+
+   The **primary branch** is the trunk branch used for coordination. All
+   kiloforge artifacts, track state, and merged work live here. Architect
+   and developer agents read from and merge into this branch.
+
+   **Auto-detect** the primary branch (try in order, use first match):
+   ```bash
+   # 1. Remote HEAD (most reliable — reflects repo default branch)
+   git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||'
+
+   # 2. git config init.defaultBranch
+   git config init.defaultBranch 2>/dev/null
+
+   # 3. Check if common branch names exist locally
+   git rev-parse --verify main 2>/dev/null && echo "main"
+   git rev-parse --verify master 2>/dev/null && echo "master"
    ```
-   Kiloforge artifacts must live on your primary coordination branch
-   for tracks and other kf-* skills to function properly.
 
-   What is your primary branch?
+   Present the result for confirmation:
+   ```
+   The primary branch is the trunk used for coordination — all kiloforge
+   artifacts, track state, and merged work live here.
 
-   1. main (default)
-   2. master
-   3. develop
-   4. Type your own
+   [If detected]: I detected "{detected_branch}" as your primary branch.
+     1. Yes, use {detected_branch}
+     2. Use a different branch (type name)
+
+   [If not detected]: What is your primary branch?
+     1. main
+     2. master
+     3. develop
+     4. Type your own
    ```
    Store the answer in `setup_state.json` as `"primary_branch": "<branch>"`.
 
