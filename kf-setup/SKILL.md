@@ -74,11 +74,8 @@ Initialize or resume Kiloforge project setup. This command creates foundational 
    ```
    Store as `"auto_commit": true|false`.
 
-2. **Verify Python 3 and PyYAML:**
+2. **Verify Python 3:**
 
-   Kiloforge CLI tools require Python 3 and PyYAML.
-
-   **Check Python 3:**
    ```bash
    python3 --version 2>/dev/null
    ```
@@ -95,7 +92,7 @@ Initialize or resume Kiloforge project setup. This command creates foundational 
 
    If the user chooses 1, detect the platform and install:
    - **macOS:** `brew install python3` (if brew available), otherwise suggest https://python.org
-   - **Linux (Debian/Ubuntu):** `sudo apt-get install -y python3 python3-pip`
+   - **Linux (Debian/Ubuntu):** `sudo apt-get install -y python3 python3-pip python3-venv`
    - **Linux (Fedora/RHEL):** `sudo dnf install -y python3 python3-pip`
    - **Linux (Arch):** `sudo pacman -S --noconfirm python python-pip`
    - **Windows:** `winget install Python.Python.3` (if winget available)
@@ -104,64 +101,31 @@ Initialize or resume Kiloforge project setup. This command creates foundational 
 
    If the user chooses 2: **HALT** — Python 3 is required to continue.
 
-   **Set up Kiloforge venv and install PyYAML:**
-
-   Kiloforge uses a project-local virtual environment at `.agent/kf/.venv` so dependencies don't pollute the system Python. All kf scripts use this venv's interpreter.
+3. **Run the install script** to scaffold the project and install CLI tools:
 
    ```bash
-   # Create venv if it doesn't exist
-   if [ ! -d ".agent/kf/.venv" ]; then
-     python3 -m venv ".agent/kf/.venv"
-   fi
-
-   # Install PyYAML into the venv
-   ".agent/kf/.venv/bin/pip" install pyyaml
+   python3 "$SKILL_DIR/../kf-bin/scripts/kf-install.py" \
+     --project-dir "$(pwd)" \
+     --primary-branch "{primary_branch from step 1}"
    ```
 
-   Verify it succeeded:
-   ```bash
-   ".agent/kf/.venv/bin/python" -c "import yaml; print('PyYAML', yaml.__version__)"
-   ```
+   This creates the full `.agent/kf/` structure in one call:
+   - Project-local venv at `.agent/kf/.venv` with PyYAML
+   - `.agent/kf/.gitignore` with `.venv` entry
+   - Empty metadata files (config, product, tech-stack, workflow, tracks, deps, conflicts)
+   - CLI tools in `.agent/kf/bin/` with shebangs rewritten to use the venv
 
-   If venv creation fails (e.g., `python3-venv` not installed on Debian/Ubuntu), install it first:
-   - **Debian/Ubuntu:** `sudo apt-get install -y python3-venv`
-   - Then retry venv creation.
+   Existing metadata files are never overwritten — safe to re-run.
 
-   **Ensure `.venv` is gitignored:**
+   **If `$SKILL_DIR` is not available**, ask for the kiloforge-skills repo path and use `--skills-dir`.
 
-   The venv must not be committed. Check if `.agent/kf/.gitignore` exists and contains `.venv`; if not, create or append it:
+4. Check if `.agent/kf/setup_state.json` has status `"complete"` or `"in_progress"`:
+   - If `"complete"` and no `--resume`: Ask user whether to reconfigure or keep existing setup
+   - If `"in_progress"` or `"scaffolded"`: Offer to resume from last section
 
-   ```bash
-   mkdir -p .agent/kf
-   if ! grep -qx '.venv' .agent/kf/.gitignore 2>/dev/null; then
-     echo '.venv' >> .agent/kf/.gitignore
-   fi
-   ```
-
-3. Check if `.agent/kf/` directory already exists in the project root:
-   - If `.agent/kf/product.yaml` or `.agent/kf/tracks.yaml` exists: Ask user whether to resume setup or reinitialize
-   - If `.agent/kf/setup_state.json` exists with incomplete status: Offer to resume from last step
-
-4. Detect project type by checking for existing indicators:
+5. Detect project type by checking for existing indicators:
    - **Greenfield (new project)**: No .git, no package.json, no requirements.txt, no go.mod, no src/ directory
    - **Brownfield (existing project)**: Any of the above exist
-
-5. Load or create `.agent/kf/setup_state.json`:
-   ```json
-   {
-     "status": "in_progress",
-     "primary_branch": "main",
-     "auto_commit": true,
-     "project_type": "greenfield|brownfield",
-     "current_section": "product|guidelines|tech_stack|workflow|styleguides",
-     "current_question": 1,
-     "completed_sections": [],
-     "answers": {},
-     "files_created": [],
-     "started_at": "ISO_TIMESTAMP",
-     "last_updated": "ISO_TIMESTAMP"
-   }
-   ```
 
 ## Interactive Q&A Protocol
 
@@ -393,9 +357,11 @@ Suggested:
 
 ## Artifact Generation
 
-After completing Q&A, generate the following files:
+After completing Q&A, populate the metadata files that were scaffolded by `kf-install.py` in the pre-flight step. The scaffolding already created empty templates — this step fills them with the user's answers.
 
 ### 1. .agent/kf/config.yaml
+
+Update with the project name from Q&A:
 
 ```yaml
 project_name: "{project name}"
@@ -404,119 +370,21 @@ primary_branch: "{primary_branch from pre-flight}"
 
 ### 2. .agent/kf/product.yaml
 
-Template populated with Q&A answers for:
-
-- Project name and description
-- Problem statement
-- Target users
-- Key goals
+Populate with Q&A answers: project name, description, problem statement, target users, key goals.
 
 ### 3. .agent/kf/product-guidelines.yaml
 
-Template populated with:
-
-- Voice and tone
-- Design principles
-- Any additional standards
+Populate with Q&A answers: voice/tone, design principles.
 
 ### 4. .agent/kf/tech-stack.yaml
 
-Template populated with:
-
-- Languages (with versions if detected)
-- Frameworks (frontend, backend)
-- Database
-- Infrastructure
-- Key dependencies (for brownfield, from package files)
+Populate with Q&A answers: languages, frameworks, database, infrastructure, dependencies.
 
 ### 5. .agent/kf/workflow.yaml
 
-Template populated with:
+Populate with Q&A answers: TDD strictness, commit strategy. Defaults (not asked): code review = optional, verification = track completion only.
 
-- TDD policy and strictness level
-- Commit strategy and conventions
-- Code review: "Optional / self-review OK" (default)
-- Verification checkpoints: "Track completion only" (default)
-- Task lifecycle definition (pending → in-progress → testing → complete → blocked)
-
-### 6. .agent/kf/tracks.yaml
-
-```yaml
-tracks: {}
-```
-
-### 7. .agent/kf/tracks/ directory
-
-Create the tracks directory and empty dependency/conflict state files:
-
-```bash
-mkdir -p .agent/kf/tracks
-```
-
-```yaml
-# .agent/kf/tracks/deps.yaml
-# Track Dependency Graph
-#
-# PROTOCOL:
-#   Canonical source for track dependency ordering (adjacency list).
-#   Each key is a track ID; its value is a list of prerequisite track IDs.
-#
-# RULES:
-#   - Only pending/in-progress tracks listed. Completed tracks pruned on cleanup.
-#   - Architect appends entries when creating tracks.
-#   - Developer checks deps before claiming: all deps must be completed.
-#   - Cycles are forbidden.
-```
-
-```yaml
-# .agent/kf/tracks/conflicts.yaml
-# Track Conflict Pairs
-#
-# PROTOCOL:
-#   Records pairs of tracks that risk merge conflicts if worked in parallel.
-#   Each key is "{lower-id}/{higher-id}" (alphabetical).
-#
-# RULES:
-#   - Architect adds pairs when genuine file overlap exists.
-#   - Pairs auto-cleaned when either track completes.
-```
-
-### 8. .agent/kf/bin/ — CLI tools
-
-Install all Kiloforge CLI tools using the install script:
-
-```bash
-python3 "$SKILL_DIR/../kf-bin/scripts/kf-install.py" --project-dir "$(pwd)"
-```
-
-This handles everything in one call:
-- Copies all scripts and `lib/` to `.agent/kf/bin/`
-- Creates the project-local venv at `.agent/kf/.venv` (if not already done in pre-flight)
-- Installs PyYAML
-- Rewrites shebangs to use the project-local venv
-- Cleans up legacy non-.py scripts from older installs
-- Ensures `.agent/kf/.gitignore` contains `.venv`
-
-The `$SKILL_DIR` variable resolves to the directory containing this skill's `SKILL.md`. The `kf-bin/scripts/` directory is one level up (at the skills repo root, inside the `kf-bin` skill).
-
-**If `$SKILL_DIR` is not available** (e.g., running setup outside of the skill framework), use `--skills-dir` to specify the kiloforge-skills repo path manually.
-
-This installs the following tools:
-
-| Tool | Type | Description |
-|------|------|-------------|
-| `kf-preflight` | python3 | Pre-flight check: verifies metadata files and tools exist |
-| `kf-primary-branch` | python3 | Resolves the primary branch from config.yaml |
-| `kf-track` | python3 | Track registry management (add, list, update, deps, conflicts) |
-| `kf-track-content` | python3 | Track content management (init, show, spec, plan, task progress) |
-| `kf-merge` | python3 | Unified merge protocol (lock, rebase, verify, merge, release) |
-| `kf-merge-lock` | python3 | Cross-worktree branch lock (acquire, release, heartbeat) |
-| `kf-claim` | python3 | Per-worktree track claim lock (acquire, release, list, find) |
-| `kf-dispatch` | python3 | Compute dispatch assignments for idle developer worktrees |
-| `kf-worktree-env` | python3 | Detect git worktree context and export env vars |
-| `kf-install` | python3 | Install or update CLI tools in a project |
-
-### 9. .agent/kf/code_styleguides/
+### 6. .agent/kf/code_styleguides/
 
 Generate style guide files based on the languages selected in Section 5. For each selected language, create a markdown file (e.g., `typescript.md`, `python.md`, `go.md`) in `.agent/kf/code_styleguides/` containing:
 
@@ -554,32 +422,17 @@ When all files are created:
    ```
    Kiloforge setup complete!
 
-   Created artifacts:
-   - .agent/kf/config.yaml
-   - .agent/kf/product.yaml
-   - .agent/kf/product-guidelines.yaml
-   - .agent/kf/tech-stack.yaml
-   - .agent/kf/workflow.yaml
-   - .agent/kf/tracks.yaml
-   - .agent/kf/tracks/deps.yaml
-   - .agent/kf/tracks/conflicts.yaml
-   - .agent/kf/bin/kf-preflight.py
-   - .agent/kf/bin/kf-primary-branch.py
-   - .agent/kf/bin/kf-track.py
-   - .agent/kf/bin/kf-track-content.py
-   - .agent/kf/bin/kf-merge.py
-   - .agent/kf/bin/kf-merge-lock.py
-   - .agent/kf/bin/kf-claim.py
-   - .agent/kf/bin/kf-dispatch.py
-   - .agent/kf/bin/kf-worktree-env.py
-   - .agent/kf/code_styleguides/[languages]
+   Project:  {project_name}
+   Branch:   {primary_branch}
+   Artifacts: .agent/kf/
 
    [If committed: "Artifacts committed to {primary_branch}."]
-   [If not committed: "⚠ Remember to commit .agent/kf/ to {primary_branch} — kf-* skills require these artifacts on the primary branch."]
+   [If not committed: "Remember to commit .agent/kf/ to {primary_branch} — kf-* skills require these artifacts on the primary branch."]
 
    Next steps:
    1. Review generated files and customize as needed
    2. Run /kf-architect to design and create your first track
+   3. To update CLI tools later, run /kf-update
    ```
 
 ## Resume Handling

@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
-"""kf-install — Install or update Kiloforge CLI tools in a project.
+"""kf-install — Initialize a Kiloforge project or update its CLI tools.
 
-Copies the latest scripts from the skills repo into .agent/kf/bin/,
-sets up the project-local venv, rewrites shebangs, and cleans up
-legacy files.
+Sets up the full .agent/kf/ directory structure: venv, CLI tools, and
+empty metadata scaffolding. Existing metadata files are never overwritten.
 
 USAGE:
-    kf-install [--project-dir DIR] [--skills-dir DIR] [--skip-venv]
+    kf-install [OPTIONS]
+    kf-install --update    # Update CLI tools only (skip scaffolding)
 
 OPTIONS:
     --project-dir DIR   Target project root (default: cwd)
-    --skills-dir DIR    Path to kiloforge-skills repo (default: auto-detect from this script's location)
-    --skip-venv         Skip venv creation/update (just copy scripts)
+    --skills-dir DIR    Path to kiloforge-skills repo (default: auto-detect)
+    --update            Update mode: only copy scripts and lib (skip venv/metadata)
+    --skip-venv         Skip venv creation/update
+    --primary-branch B  Primary branch name for config.yaml (default: main)
 
 Run from anywhere — it auto-detects the skills repo from its own location.
 """
@@ -21,6 +23,7 @@ import os
 import shutil
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -36,6 +39,32 @@ LEGACY_NAMES = [
     "kf-dispatch",
     "kf-claim",
 ]
+
+DEPS_YAML_HEADER = """\
+# Track Dependency Graph
+#
+# PROTOCOL:
+#   Canonical source for track dependency ordering (adjacency list).
+#   Each key is a track ID; its value is a list of prerequisite track IDs.
+#
+# RULES:
+#   - Only pending/in-progress tracks listed. Completed tracks pruned on cleanup.
+#   - Architect appends entries when creating tracks.
+#   - Developer checks deps before claiming: all deps must be completed.
+#   - Cycles are forbidden.
+"""
+
+CONFLICTS_YAML_HEADER = """\
+# Track Conflict Pairs
+#
+# PROTOCOL:
+#   Records pairs of tracks that risk merge conflicts if worked in parallel.
+#   Each key is "{lower-id}/{higher-id}" (alphabetical).
+#
+# RULES:
+#   - Architect adds pairs when genuine file overlap exists.
+#   - Pairs auto-cleaned when either track completes.
+"""
 
 
 def detect_skills_dir(script_path: Path) -> Path:
@@ -104,6 +133,92 @@ def ensure_gitignore(project_dir: Path):
             for entry in missing:
                 f.write(f"{entry}\n")
         print(f"Updated .agent/kf/.gitignore: added {', '.join(missing)}")
+
+
+def scaffold_metadata(project_dir: Path, primary_branch: str) -> list[str]:
+    """Create empty metadata files if they don't already exist.
+
+    Never overwrites existing files — safe to run on an existing project.
+    Returns list of files created.
+    """
+    kf_dir = project_dir / ".agent" / "kf"
+    tracks_dir = kf_dir / "tracks"
+    tracks_dir.mkdir(parents=True, exist_ok=True)
+
+    created = []
+
+    def write_if_missing(path: Path, content: str) -> bool:
+        if path.exists():
+            return False
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+        return True
+
+    # config.yaml
+    if write_if_missing(kf_dir / "config.yaml",
+        f'project_name: ""\nprimary_branch: "{primary_branch}"\n'):
+        created.append("config.yaml")
+
+    # product.yaml
+    if write_if_missing(kf_dir / "product.yaml",
+        "# Product Definition\n# Populated by /kf-setup interactive Q&A\n"
+        "name: \"\"\ndescription: \"\"\nproblem: \"\"\nusers: \"\"\ngoals: []\n"):
+        created.append("product.yaml")
+
+    # product-guidelines.yaml
+    if write_if_missing(kf_dir / "product-guidelines.yaml",
+        "# Product Guidelines\n# Populated by /kf-setup interactive Q&A\n"
+        "voice: \"\"\nprinciples: []\n"):
+        created.append("product-guidelines.yaml")
+
+    # tech-stack.yaml
+    if write_if_missing(kf_dir / "tech-stack.yaml",
+        "# Tech Stack\n# Populated by /kf-setup interactive Q&A\n"
+        "languages: []\nfrontend: \"\"\nbackend: \"\"\ndatabase: \"\"\n"
+        "infrastructure: \"\"\ndependencies: []\n"):
+        created.append("tech-stack.yaml")
+
+    # workflow.yaml
+    if write_if_missing(kf_dir / "workflow.yaml",
+        "# Workflow Configuration\n# Populated by /kf-setup interactive Q&A\n"
+        "tdd:\n  strictness: flexible\n"
+        "commits:\n  strategy: conventional\n"
+        "review: optional\n"
+        "verification:\n  checkpoints: track_completion\n"
+        "  commands: []\n"):
+        created.append("workflow.yaml")
+
+    # tracks.yaml
+    if write_if_missing(kf_dir / "tracks.yaml", ""):
+        created.append("tracks.yaml")
+
+    # tracks/deps.yaml
+    if write_if_missing(tracks_dir / "deps.yaml", DEPS_YAML_HEADER):
+        created.append("tracks/deps.yaml")
+
+    # tracks/conflicts.yaml
+    if write_if_missing(tracks_dir / "conflicts.yaml", CONFLICTS_YAML_HEADER):
+        created.append("tracks/conflicts.yaml")
+
+    # setup_state.json
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if write_if_missing(kf_dir / "setup_state.json",
+        '{\n'
+        '  "status": "scaffolded",\n'
+        f'  "primary_branch": "{primary_branch}",\n'
+        '  "auto_commit": true,\n'
+        '  "project_type": "",\n'
+        '  "current_section": "product",\n'
+        '  "current_question": 1,\n'
+        '  "completed_sections": [],\n'
+        '  "answers": {},\n'
+        '  "files_created": [],\n'
+        f'  "started_at": "{now}",\n'
+        f'  "last_updated": "{now}"\n'
+        '}\n'):
+        created.append("setup_state.json")
+
+    return created
 
 
 def copy_scripts(skills_dir: Path, project_dir: Path) -> list[str]:
@@ -176,7 +291,9 @@ def clean_legacy(project_dir: Path) -> list[str]:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Install or update Kiloforge CLI tools in a project.",
+        description="Initialize a Kiloforge project or update its CLI tools.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
     )
     parser.add_argument(
         "--project-dir", default=os.getcwd(),
@@ -187,8 +304,16 @@ def main():
         help="Path to kiloforge-skills repo (default: auto-detect)",
     )
     parser.add_argument(
+        "--update", action="store_true",
+        help="Update mode: only copy scripts and lib (skip venv/metadata)",
+    )
+    parser.add_argument(
         "--skip-venv", action="store_true",
         help="Skip venv creation/update",
+    )
+    parser.add_argument(
+        "--primary-branch", default="main",
+        help="Primary branch name for config.yaml (default: main)",
     )
     args = parser.parse_args()
 
@@ -198,42 +323,56 @@ def main():
     else:
         skills_dir = detect_skills_dir(Path(__file__).resolve())
 
+    mode = "Update" if args.update else "Install"
+
     print("=" * 60)
-    print("  Kiloforge CLI Tools — Install / Update")
+    print(f"  Kiloforge — {mode}")
     print("=" * 60)
     print(f"  Skills repo:  {skills_dir}")
     print(f"  Project:      {project_dir}")
-    print(f"  Target:       {project_dir / '.agent' / 'kf' / 'bin'}")
+    print(f"  Target:       {project_dir / '.agent' / 'kf'}")
     print("=" * 60)
     print()
 
-    # Step 1: Venv
-    if not args.skip_venv:
+    # Step 1: Venv (skip in update mode)
+    skip_venv = args.skip_venv or args.update
+    if not skip_venv:
         venv_dir = ensure_venv(project_dir)
         ensure_gitignore(project_dir)
+        print()
     else:
         venv_dir = project_dir / ".agent" / "kf" / ".venv"
-        print("Skipping venv setup (--skip-venv)")
+        if args.update:
+            print("Update mode — skipping venv setup")
+        else:
+            print("Skipping venv setup (--skip-venv)")
 
-    print()
+    # Step 2: Scaffold metadata (skip in update mode)
+    if not args.update:
+        print("Scaffolding metadata files...")
+        created = scaffold_metadata(project_dir, args.primary_branch)
+        if created:
+            for name in created:
+                print(f"  created .agent/kf/{name}")
+        else:
+            print("  (all metadata files already exist)")
+        print()
 
-    # Step 2: Copy scripts
+    # Step 3: Copy scripts
     print("Copying scripts...")
     copied = copy_scripts(skills_dir, project_dir)
     for name in copied:
         print(f"  {name}")
-
     print()
 
-    # Step 3: Rewrite shebangs
+    # Step 4: Rewrite shebangs
     if venv_dir.is_dir():
         rewrite_shebangs(project_dir, venv_dir)
     else:
         print("WARNING: Venv not found — shebangs not updated", file=sys.stderr)
-
     print()
 
-    # Step 4: Clean legacy
+    # Step 5: Clean legacy
     removed = clean_legacy(project_dir)
     if removed:
         print(f"Cleaned {len(removed)} legacy script(s):")
@@ -244,7 +383,10 @@ def main():
 
     print()
     print("=" * 60)
-    print("  Install complete")
+    print(f"  {mode} complete")
+    if not args.update:
+        print()
+        print("  Next: run /kf-setup to configure project metadata")
     print("=" * 60)
 
 
