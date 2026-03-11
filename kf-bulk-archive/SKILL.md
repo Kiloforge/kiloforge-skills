@@ -1,17 +1,17 @@
 ---
 name: kf-bulk-archive
-description: Archive all completed tracks by moving their directories to _archive and updating tracks.md
+description: Archive all completed tracks by moving their directories to _archive and updating tracks.yaml
 ---
 
 # Bulk Archive
 
-Move all completed track directories into `_archive/` and update `tracks.md` in a single operation.
+Move all completed track directories into `_archive/` and update `tracks.yaml` in a single operation.
 
 ## Use this skill when
 
-- All (or many) active tracks are marked `[x]` complete and need archiving
+- All (or many) active tracks have status `completed` and need archiving
 - The user says "bulk archive" or "archive completed tracks"
-- Cleaning up the active tracks table after a round of parallel work
+- Cleaning up the active tracks registry after a round of parallel work
 
 ## Do not use this skill when
 
@@ -23,7 +23,7 @@ Move all completed track directories into `_archive/` and update `tracks.md` in 
 
 ### Step 1: Identify completed tracks
 
-Read `.agent/kf/tracks.md` and find all rows marked `[x]` in the active table (above the `## Archived` section).
+Read `.agent/kf/tracks.yaml` and find all entries with status `completed`.
 
 If none are found, report "No completed tracks to archive" and stop.
 
@@ -38,20 +38,21 @@ For each completed track:
 mv .agent/kf/tracks/{trackId}/ .agent/kf/tracks/_archive/{trackId}/
 ```
 
-### Step 3: Update tracks.md
+### Step 3: Update tracks.yaml
 
-1. Remove the `[x]` rows from the active table
-2. Add a new batch archive entry under `## Archived Tracks`:
+1. Update all `completed` entries to status `archived`, or remove them from the active entries list
+2. Add a new batch archive entry under the `archived` section:
 
-```markdown
-### Batch Archive {YYYY-MM-DDTHH:MM:SSZ} ({count} tracks)
-
-All active tracks completed and archived at {YYYY-MM-DDTHH:MM:SSZ}.
-
-| Track ID | Title | Reason |
-| -------- | ----- | ------ |
-| {trackId} | {title} | Completed |
-...
+```yaml
+archived:
+  - batch: "{YYYY-MM-DDTHH:MM:SSZ}"
+    count: {count}
+    note: "All active tracks completed and archived at {YYYY-MM-DDTHH:MM:SSZ}."
+    tracks:
+      - id: "{trackId}"
+        title: "{title}"
+        reason: "Completed"
+      # ...
 ```
 
 Place the new batch entry **above** any previous archive batches so the most recent is first.
@@ -59,7 +60,7 @@ Place the new batch entry **above** any previous archive batches so the most rec
 ### Step 4: Commit
 
 ```bash
-git add .agent/kf/tracks.md .agent/kf/tracks/
+git add .agent/kf/tracks.yaml .agent/kf/tracks/
 git commit -m "chore: bulk archive {count} completed tracks"
 ```
 

@@ -64,8 +64,8 @@ git worktree list
 
 Check that these files exist (read from main):
 ```bash
-git show main:.agent/kf/product.md > /dev/null 2>&1
-git show main:.agent/kf/tech-stack.md > /dev/null 2>&1
+git show main:.agent/kf/product.yaml > /dev/null 2>&1
+git show main:.agent/kf/tech-stack.yaml > /dev/null 2>&1
 git show main:.agent/kf/tracks.yaml > /dev/null 2>&1
 ```
 
@@ -85,9 +85,9 @@ This ensures you have the latest track state, including tracks that other genera
 
 Read all of these (from working tree, now synced with main):
 
-1. **Product context:** `.agent/kf/product.md`
-2. **Product guidelines:** `.agent/kf/product-guidelines.md` (if exists)
-3. **Tech stack:** `.agent/kf/tech-stack.md`
+1. **Product context:** `.agent/kf/product.yaml`
+2. **Product guidelines:** `.agent/kf/product-guidelines.yaml` (if exists)
+3. **Tech stack:** `.agent/kf/tech-stack.yaml`
 4. **Project index:** Run `.agent/kf/bin/kf-track index --ref main` (generated summary of all tracks)
 5. **Quick links:** Run `.agent/kf/bin/kf-track quick-links show --ref main` (navigation links)
 6. **Track states:** `.agent/kf/tracks.yaml` (YAML registry — use `.agent/kf/bin/kf-track list --ref main` to query)

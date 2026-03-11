@@ -7,7 +7,7 @@ metadata:
 
 # Implement Track
 
-Execute tasks from a track's implementation plan, following the workflow rules defined in `.agent/kf/workflow.md`.
+Execute tasks from a track's implementation plan, following the workflow rules defined in `.agent/kf/workflow.yaml`.
 
 ## Use this skill when
 
@@ -34,13 +34,13 @@ Execute tasks from a track's implementation plan, following the workflow rules d
    This ensures you see the latest tracks, dependencies, and project state. Without this, `kf-track get` and `kf-track list` may report tracks as "not found" even if they exist on main.
 
 2. Verify Kiloforge is initialized:
-   - Check `.agent/kf/product.md` exists
-   - Check `.agent/kf/workflow.md` exists
+   - Check `.agent/kf/product.yaml` exists
+   - Check `.agent/kf/workflow.yaml` exists
    - Check `.agent/kf/tracks.yaml` exists
    - If missing: Display error and suggest running `/kf-setup` first
 
 2. Load workflow configuration:
-   - Read `.agent/kf/workflow.md`
+   - Read `.agent/kf/workflow.yaml`
    - Parse TDD strictness level
    - Parse commit strategy
    - Parse verification checkpoint rules
@@ -88,12 +88,12 @@ Load all relevant context for implementation:
    ```
 
 2. Project context:
-   - `.agent/kf/product.md` - Product understanding
-   - `.agent/kf/tech-stack.md` - Technical constraints
-   - `.agent/kf/workflow.md` - Process rules
+   - `.agent/kf/product.yaml` - Product understanding
+   - `.agent/kf/tech-stack.yaml` - Technical constraints
+   - `.agent/kf/workflow.yaml` - Process rules
 
 3. Code style (if exists):
-   - `.agent/kf/code_styleguides/{language}.md`
+   - `.agent/kf/code_styleguides/{language}.yaml`
 
 ## Track Status Update
 
@@ -120,7 +120,7 @@ Look for the first task not yet marked done.
 
 Announce: "Starting Task X.Y: {description}"
 
-### 3. TDD Workflow (if TDD enabled in workflow.md)
+### 3. TDD Workflow (if TDD enabled in workflow.yaml)
 
 **Red Phase - Write Failing Test:**
 
@@ -162,7 +162,7 @@ Step 3: Refactoring while keeping tests green
 
 ### 5. Task Completion
 
-**Commit changes** (following commit strategy from workflow.md):
+**Commit changes** (following commit strategy from workflow.yaml):
 
 ```bash
 git add -A
@@ -198,7 +198,7 @@ If all tasks in current phase are done:
 Phase {N} complete. Running verification...
 ```
 
-- Execute verification commands from workflow.md
+- Execute verification commands from workflow.yaml
 - Run full test suite
 
 **Report and wait for approval:**
@@ -295,8 +295,8 @@ Verify completion:
 Track complete! Would you like to sync documentation?
 
 This will update:
-- .agent/kf/product.md (if new features added)
-- .agent/kf/tech-stack.md (if new dependencies added)
+- .agent/kf/product.yaml (if new features added)
+- .agent/kf/tech-stack.yaml (if new dependencies added)
 - README.md (if applicable)
 
 1. Yes, sync documentation
@@ -357,7 +357,7 @@ If implementation is paused and resumed:
 
 1. **NEVER skip verification checkpoints** - Always wait for user approval between phases
 2. **STOP on any failure** - Do not attempt to continue past errors
-3. **Follow workflow.md strictly** - TDD, commit strategy, and verification rules are mandatory
+3. **Follow workflow.yaml strictly** - TDD, commit strategy, and verification rules are mandatory
 4. **Use CLI tools for track updates** - Use `kf-track` and `kf-track-content` for all status and progress updates
 5. **Commit frequently** - Each task completion should be committed
 6. **Use kf-track-content for progress** - Never parse plan files manually; use `kf-track-content progress` instead

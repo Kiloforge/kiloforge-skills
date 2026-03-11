@@ -32,14 +32,14 @@ Reports are written to `.agent/kf/_reports/product-advisor/` as markdown files.
 This advisor runs inside an existing, initialized Kiloforge project. It uses the project's working directory and existing artifacts — it does NOT create a new project.
 
 1. **Verify Kiloforge is initialized:**
-   - Check `.agent/kf/product.md` exists
+   - Check `.agent/kf/product.yaml` exists
    - Check `.agent/kf/tracks.yaml` exists
    - If missing: Display error and suggest `/kf-setup`
 
 2. **Load project context:**
-   - Read `.agent/kf/product.md` — project description, problem statement, target users, key goals
-   - Read `.agent/kf/product-guidelines.md` — design principles, voice and tone
-   - Read `.agent/kf/tech-stack.md` — technology choices and constraints
+   - Read `.agent/kf/product.yaml` — project description, problem statement, target users, key goals
+   - Read `.agent/kf/product-guidelines.yaml` — design principles, voice and tone
+   - Read `.agent/kf/tech-stack.yaml` — technology choices and constraints
    - Read `.agent/kf/tracks.yaml` — current track statuses for understanding project maturity
 
 3. **Ensure output directory exists:**
@@ -140,7 +140,7 @@ Where `{topic-slug}` is a kebab-case summary of the advisory topic (e.g., `compe
 # Product Advisory: {Topic}
 
 > **Generated:** {YYYY-MM-DD}
-> **Project:** {project name from product.md}
+> **Project:** {project name from product.yaml}
 
 ---
 
@@ -220,10 +220,10 @@ If WebSearch/WebFetch are not available or fail, continue with codebase-only ana
 
 ### No Product Context
 
-If `product.md` is missing or empty, warn and ask the user to provide product context:
+If `product.yaml` is missing or empty, warn and ask the user to provide product context:
 
 ```
-WARNING: No product.md found. Product context is needed for meaningful advice.
+WARNING: No product.yaml found. Product context is needed for meaningful advice.
 Run /kf-setup to create product artifacts, or describe your product so I can proceed.
 ```
 
@@ -231,7 +231,7 @@ Run /kf-setup to create product artifacts, or describe your product so I can pro
 
 ## Critical Rules
 
-1. **Ground advice in project context** — always read product.md and codebase before advising
+1. **Ground advice in project context** — always read product.yaml and codebase before advising
 2. **Be actionable** — every recommendation should be concrete enough to become a track
 3. **Include the Suggested Tracks table** — the report's value is in its handoff to /kf-architect
 4. **Write to file AND display** — always write the report to disk and show it to the user

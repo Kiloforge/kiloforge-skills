@@ -34,7 +34,7 @@ Reports are written to `.agent/kf/_reports/` as markdown files.
    This ensures you see the latest track statuses, completed/archived tracks, and project metadata. Without this, reports may show outdated data or miss recently completed tracks.
 
 2. Verify Kiloforge is initialized:
-   - Check `.agent/kf/product.md` exists
+   - Check `.agent/kf/product.yaml` exists
    - Check `.agent/kf/tracks.yaml` exists
    - If missing: Display error and suggest running `/kf-setup` first
 
@@ -49,7 +49,7 @@ Reports are written to `.agent/kf/_reports/` as markdown files.
    - Store as `$SINCE` and `$UNTIL` (YYYY-MM-DD format)
 
 5. Detect compacted archives:
-   - Check if `.agent/kf/archive-compactions.md` exists
+   - Check if `.agent/kf/archive-compactions.yaml` exists
    - If it exists, read it and parse the compaction table(s):
      - Extract each row: `Commit`, `Date`, `Completed`, `Uncompleted`, `First Created`, `Last Created`, `First Completed`, `Last Completed`
      - Store as `$COMPACTION_POINTS` array for use in subsequent sections
@@ -59,7 +59,7 @@ Reports are written to `.agent/kf/_reports/` as markdown files.
      ```
    - For each track directory found, recover its metadata:
      ```bash
-     git show {COMMIT_SHA}:.agent/kf/tracks/_archive/{trackId}/metadata.json
+     git show {COMMIT_SHA}:.agent/kf/tracks/_archive/{trackId}/track.yaml
      ```
    - Store recovered metadata in `$COMPACTED_TRACKS` array with fields: trackId, status, type, created, updated, tasks.total, tasks.completed, compaction_commit
    - Also recover the tracks.yaml index at that point for track titles:
@@ -81,7 +81,7 @@ Reports are written to `.agent/kf/_reports/` as markdown files.
    mkdir -p .agent/kf/_reports
    ```
 
-8. Read product name from `.agent/kf/product.md` (the `## Project Name` field).
+8. Read product name from `.agent/kf/product.yaml` (the `## Project Name` field).
 
 ---
 
@@ -383,7 +383,7 @@ Analyze the system to identify:
 - **Internal Logical Files (ILF)**: maintained data stores (database tables/collections, KV stores, in-memory caches). Weight: 10 per ILF.
 - **External Interface Files (EIF)**: external systems referenced (databases, message brokers, cloud APIs, third-party services, container runtimes). Weight: 7 per EIF.
 
-Identify these by reading `product.md`, `tech-stack.md`, track titles, and scanning commit subjects for integration keywords.
+Identify these by reading `product.yaml`, `tech-stack.yaml`, track titles, and scanning commit subjects for integration keywords.
 
 Compute:
 - UFP = sum of (count * weight) for each category
@@ -401,7 +401,7 @@ Compute:
 
 **Model 4: Effort by Analogy**
 
-Based on the system's architectural scope (from product.md and tech-stack.md), estimate what comparable systems cost:
+Based on the system's architectural scope (from product.yaml and tech-stack.yaml), estimate what comparable systems cost:
 - Identify the key architectural components (e.g., "distributed pipeline + messaging + gRPC + web UI + CLI + container orchestration")
 - Provide freelance/agency and in-house team estimates based on industry benchmarks
 

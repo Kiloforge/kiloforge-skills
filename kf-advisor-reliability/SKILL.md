@@ -56,7 +56,7 @@ This advisor runs inside an existing, initialized Kiloforge project. It uses the
 
 ```bash
 # Check kiloforge is initialized
-ls .agent/kf/product.md .agent/kf/tech-stack.md .agent/kf/workflow.md 2>/dev/null
+ls .agent/kf/product.yaml .agent/kf/tech-stack.yaml .agent/kf/workflow.yaml 2>/dev/null
 ```
 
 If missing, suggest `/kf-setup` and **HALT**.
@@ -64,9 +64,9 @@ If missing, suggest `/kf-setup` and **HALT**.
 ### Step 2 — Load project context
 
 Read:
-- `.agent/kf/product.md` — understand the product
-- `.agent/kf/tech-stack.md` — know the tech stack and tools
-- `.agent/kf/workflow.md` — understand verification commands and TDD policy
+- `.agent/kf/product.yaml` — understand the product
+- `.agent/kf/tech-stack.yaml` — know the tech stack and tools
+- `.agent/kf/workflow.yaml` — understand verification commands and TDD policy
 - `.agent/kf/code_styleguides/` — existing style conventions
 
 ### Step 3 — Check audit history

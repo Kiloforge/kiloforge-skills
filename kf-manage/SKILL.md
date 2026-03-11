@@ -23,10 +23,10 @@ Manage the complete track lifecycle including archiving, restoring, deleting, re
 
 ## Instructions
 
-- Verify `.agent/kf/` structure and required files before proceeding.
+- Verify `.agent/kf/` structure (including `tracks.yaml`) before proceeding.
 - Determine the operation mode from arguments or interactive prompts.
 - Confirm destructive actions (delete/cleanup) before applying.
-- Update `tracks.md` and metadata consistently.
+- Use `.agent/kf/bin/kf-track` CLI to update `tracks.yaml` and track metadata consistently.
 - If detailed steps are required, open `resources/implementation-playbook.md`.
 
 ## Safety

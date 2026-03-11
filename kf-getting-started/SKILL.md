@@ -31,7 +31,7 @@ Bootstrap a new project from scratch. This skill asks high-level questions a non
    - If found with `"status": "in_progress"` and `--resume` was passed (or offer resume): load state and skip completed sections
    - If found with `"status": "complete"`: inform the user setup already ran, suggest `/kf-setup` if Kiloforge artifacts are missing
 
-2. **Check if already initialized** — if `.agent/kf/product.md` exists:
+2. **Check if already initialized** — if `.agent/kf/product.yaml` exists:
    - Warn that Kiloforge is already initialized
    - Ask if they want to continue (will overwrite) or abort
 
@@ -604,10 +604,10 @@ Map blueprint fields to kf-setup sections:
 2. Create `.agent/kf/` directory if it doesn't exist
 
 3. Write pre-populated artifacts directly (same as kf-setup output):
-   - `.agent/kf/product.md` — from blueprint project section
-   - `.agent/kf/product-guidelines.md` — from blueprint quality + sensible defaults
-   - `.agent/kf/tech-stack.md` — from blueprint tech_stack section
-   - `.agent/kf/workflow.md` — from blueprint quality section
+   - `.agent/kf/product.yaml` — from blueprint project section
+   - `.agent/kf/product-guidelines.yaml` — from blueprint quality + sensible defaults
+   - `.agent/kf/tech-stack.yaml` — from blueprint tech_stack section
+   - `.agent/kf/workflow.yaml` — from blueprint quality section
    - `.agent/kf/code_styleguides/` — auto-selected based on language
 
 4. Create `.agent/kf/tracks.yaml`:
@@ -635,11 +635,11 @@ Map blueprint fields to kf-setup sections:
    {list of files_created}
 
    Kiloforge artifacts:
-   - .agent/kf/product.md
-   - .agent/kf/product-guidelines.md
-   - .agent/kf/tech-stack.md
-   - .agent/kf/workflow.md
-   - .agent/kf/code_styleguides/{language}.md
+   - .agent/kf/product.yaml
+   - .agent/kf/product-guidelines.yaml
+   - .agent/kf/tech-stack.yaml
+   - .agent/kf/workflow.yaml
+   - .agent/kf/code_styleguides/{language}.yaml
    - .agent/kf/tracks.yaml
 
    Next steps:
@@ -723,7 +723,7 @@ If `--resume` is passed or state file exists with `"status": "in_progress"`:
 - **User cancels (Ctrl+C or "cancel"):** Save current state for future `--resume`.
 - **State file corrupted:** Offer to start fresh or attempt partial recovery from `completed_sections`.
 - **Directory not empty warning:** Inform user, list existing files, ask to proceed or abort.
-- **kf-setup already ran:** If `.agent/kf/product.md` exists, warn and ask before overwriting.
+- **kf-setup already ran:** If `.agent/kf/product.yaml` exists, warn and ask before overwriting.
 
 ---
 

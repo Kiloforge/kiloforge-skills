@@ -33,7 +33,7 @@ ACTIVE ROLE: kf-developer — track {trackId} — skill at ~/.claude/skills/kf-d
 
 This line is designed to survive compaction summaries. If you see it in your context but can no longer recall the full workflow, re-read the skill file before continuing. For project-specific values, re-read only what you need:
 
-- Verification commands: `.agent/kf/workflow.md`
+- Verification commands: `.agent/kf/workflow.yaml`
 - Track list/statuses: `.agent/kf/bin/kf-track list`
 - Track progress: `.agent/kf/bin/kf-track-content progress {trackId}`
 - Main worktree path: `git worktree list`
@@ -110,8 +110,8 @@ To see available tracks, run `.agent/kf/bin/kf-track list` or /kf-architect to c
 
 Check these files exist (read from primary branch):
 ```bash
-git show ${PRIMARY_BRANCH}:.agent/kf/product.md > /dev/null 2>&1
-git show ${PRIMARY_BRANCH}:.agent/kf/workflow.md > /dev/null 2>&1
+git show ${PRIMARY_BRANCH}:.agent/kf/product.yaml > /dev/null 2>&1
+git show ${PRIMARY_BRANCH}:.agent/kf/workflow.yaml > /dev/null 2>&1
 git show ${PRIMARY_BRANCH}:.agent/kf/tracks.yaml > /dev/null 2>&1
 ```
 
@@ -244,7 +244,7 @@ If a stash branch exists, merge it into the fresh implementation branch. This re
 
 ### Step 6 — Load workflow configuration
 
-Read `.agent/kf/workflow.md` and parse:
+Read `.agent/kf/workflow.yaml` and parse:
 - Verification commands (e.g., `make test`, `make e2e`)
 - TDD strictness level
 - Commit strategy
@@ -266,8 +266,8 @@ Load track context via CLI (now from the working tree, which is based on the pri
 ```
 
 Also read project context:
-- `.agent/kf/product.md`
-- `.agent/kf/tech-stack.md`
+- `.agent/kf/product.yaml`
+- `.agent/kf/tech-stack.yaml`
 - `.agent/kf/code_styleguides/` (if present)
 
 ---
@@ -279,8 +279,8 @@ Also read project context:
 Follow the exact same implementation workflow as `/kf-implement`:
 
 - Execute each task in the plan sequentially
-- Follow TDD workflow if configured in `workflow.md`
-- Commit after each task completion using the commit strategy from `workflow.md`
+- Follow TDD workflow if configured in `workflow.yaml`
+- Commit after each task completion using the commit strategy from `workflow.yaml`
 - Update task completion via CLI: `.agent/kf/bin/kf-track-content task {trackId} <phase>.<task> --done`
 - Check progress: `.agent/kf/bin/kf-track-content progress {trackId}`
 - Run phase verification at the end of each phase
@@ -555,7 +555,7 @@ If rebase still fails after resolution: release lock (`kf-merge-lock release`), 
 
 #### 11c. Post-rebase verification
 
-Run the full verification suite from `workflow.md` (e.g., `make test`, `make e2e`).
+Run the full verification suite from `workflow.yaml` (e.g., `make test`, `make e2e`).
 
 On failure: release lock (`kf-merge-lock release`), report, **HALT**.
 
@@ -671,7 +671,7 @@ Detection is automatic. Run `kf-merge-lock status` to inspect current lock state
 6. **ALWAYS use --ff-only** — clean fast-forward merges only
 7. **ONE merge at a time** — enforce via cross-worktree merge lock (HTTP preferred, mkdir fallback)
 8. **HALT on any failure** — do not continue past errors without user input
-9. **Follow workflow.md** — all TDD, commit, and verification rules apply
+9. **Follow workflow.yaml** — all TDD, commit, and verification rules apply
 10. **Return to home branch** — always checkout back to `worker-*` branch after merge
 11. **Clean up remote on merge** — if `--with-review`, delete remote branch and close PR after merge
 12. **ALWAYS send heartbeat** — start heartbeat after lock acquire, stop after release

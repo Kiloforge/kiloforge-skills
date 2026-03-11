@@ -108,10 +108,10 @@ Read project standards and track spec to review against:
    ```bash
    .agent/kf/bin/kf-track-content show {trackId} --section plan
    ```
-3. **Product context:** `.agent/kf/product.md`
-4. **Product guidelines:** `.agent/kf/product-guidelines.md` (if exists)
-5. **Tech stack:** `.agent/kf/tech-stack.md`
-6. **Workflow rules:** `.agent/kf/workflow.md`
+3. **Product context:** `.agent/kf/product.yaml`
+4. **Product guidelines:** `.agent/kf/product-guidelines.yaml` (if exists)
+5. **Tech stack:** `.agent/kf/tech-stack.yaml`
+6. **Workflow rules:** `.agent/kf/workflow.yaml`
 7. **Code style guides:** `.agent/kf/code_styleguides/` (if present)
 
 Output the compaction anchor:
@@ -151,7 +151,7 @@ Evaluate the PR against these criteria:
 - Are there logic errors, off-by-one errors, or missing edge cases?
 
 #### Architecture & Patterns
-- Does it follow the project's architectural patterns (from tech-stack.md, code style guides)?
+- Does it follow the project's architectural patterns (from tech-stack.yaml, code style guides)?
 - Is the code in the right domain/package/module?
 - Are dependencies appropriate (no circular deps, proper layering)?
 
@@ -161,9 +161,9 @@ Evaluate the PR against these criteria:
 - Proper error handling?
 
 #### Testing
-- Are tests included if required by workflow.md?
+- Are tests included if required by workflow.yaml?
 - Do tests cover the key behaviors?
-- TDD compliance if workflow.md requires it?
+- TDD compliance if workflow.yaml requires it?
 
 #### Security
 - No hardcoded secrets, no SQL injection, no XSS?

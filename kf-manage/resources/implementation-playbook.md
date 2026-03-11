@@ -5,8 +5,8 @@ This file contains detailed patterns, checklists, and code samples referenced by
 ## Pre-flight Checks
 
 1. Verify Kiloforge is initialized:
-   - Check `.agent/kf/product.md` exists
-   - Check `.agent/kf/tracks.md` exists
+   - Check `.agent/kf/product.yaml` exists
+   - Check `.agent/kf/tracks.yaml` exists
    - Check `.agent/kf/tracks/` directory exists
    - If missing: Display error and suggest running `/kf:setup` first
 
@@ -37,11 +37,11 @@ When invoked without arguments, display the main menu:
 
 ### 1. Gather Quick Stats
 
-Read `.agent/kf/tracks.md` and scan directories:
+Run `.agent/kf/bin/kf-track list` and scan directories:
 
-- Count active tracks (status `[ ]` or `[~]`)
-- Count completed tracks (status `[x]`, not archived)
-- Count archived tracks (in `_archive/` directory)
+- Count active tracks (status `pending` or `in-progress`)
+- Count completed tracks (status `completed`, not archived)
+- Count archived tracks (status `archived` or in `_archive/` directory)
 
 ### 2. Display Main Menu
 
@@ -88,21 +88,21 @@ Display comprehensive track overview with optional filtering.
 
 **For Active Tracks:**
 
-- Read `.agent/kf/tracks.md`
-- For each track with status `[ ]` or `[~]`:
-  - Read `.agent/kf/tracks/{trackId}/metadata.json` for type, dates
-  - Read `.agent/kf/tracks/{trackId}/plan.md` for task counts
+- Run `.agent/kf/bin/kf-track list` to get all tracks
+- For each track with status `pending` or `in-progress`:
+  - Run `.agent/kf/bin/kf-track get {trackId}` for type, dates
+  - Run `.agent/kf/bin/kf-track-content progress {trackId}` for task counts
   - Calculate progress percentage
 
 **For Completed Tracks:**
 
-- Find tracks with status `[x]` not in `_archive/`
-- Read metadata for completion dates
+- Find tracks with status `completed` not in `_archive/`
+- Read track.yaml for completion dates
 
 **For Archived Tracks:**
 
 - Scan `.agent/kf/tracks/_archive/` directory
-- Read each `metadata.json` for archive reason and date
+- Read each `track.yaml` for archive reason and date
 
 ### 2. Output Format
 
@@ -114,10 +114,10 @@ Display comprehensive track overview with optional filtering.
 ================================================================================
 
 ACTIVE TRACKS ({count})
-| Status | Track ID           | Type    | Progress    | Updated    |
-|--------|-------------------|---------|-------------|------------|
-| [~]    | dashboard_20250112| feature | 7/15 (47%)  | 2025-01-15 |
-| [ ]    | nav-fix_20250114  | bug     | 0/4 (0%)    | 2025-01-14 |
+| Status      | Track ID           | Type    | Progress    | Updated    |
+|-------------|-------------------|---------|-------------|------------|
+| in-progress | dashboard_20250112| feature | 7/15 (47%)  | 2025-01-15 |
+| pending     | nav-fix_20250114  | bug     | 0/4 (0%)    | 2025-01-14 |
 
 COMPLETED TRACKS ({count})
 | Track ID           | Type    | Completed  | Duration |
@@ -204,9 +204,9 @@ Move completed tracks to the archive directory.
 
 #### 2. Verify Completion Status
 
-Read `.agent/kf/tracks/{track-id}/metadata.json` and `plan.md`:
+Read `.agent/kf/tracks/{track-id}/track.yaml` (or run `.agent/kf/bin/kf-track get {track-id}`):
 
-- If status is not `completed` or `[x]`:
+- If status is not `completed`:
 
   ```
   Track '{track-id}' is not marked as complete.
@@ -255,8 +255,8 @@ Reason:   {reason}
 
 Actions:
 - Move .agent/kf/tracks/{track-id}/ to .agent/kf/tracks/_archive/{track-id}/
-- Update .agent/kf/tracks.md (move to Archived Tracks section)
-- Update metadata.json with archive info
+- Update .agent/kf/tracks.yaml via `kf-track update` (set status to archived)
+- Update track.yaml with archive info
 - Create git commit: chore(kf): Archive track '{title}'
 
 ================================================================================
@@ -278,11 +278,9 @@ You MUST execute the provided archive script to safely sync all tracking text an
 
 Wait for the script to complete successfully. The script will automatically handle:
 
-- Updating `metadata.json` (status, phase/task counters, and archive dates)
-- Updating `index.md` text counters
-- Checking off the `plan.md` header status
+- Updating `track.yaml` (status, archive dates, and reason)
 - Moving the directory to `_archive/`
-- Updating the master `tracks.md` registry
+- Updating the master `tracks.yaml` registry via `kf-track update`
 - Committing all these tracked changes to git automatically.
 
 #### 6. Success Output
@@ -310,7 +308,7 @@ To list:    /kf:manage --list archived
 
 Scan for completed tracks not yet archived:
 
-- Status `[x]` in tracks.md
+- Status `completed` via `kf-track list`
 - Not in `_archive/` directory
 
 #### 2. Display Selection Menu
@@ -322,8 +320,8 @@ Scan for completed tracks not yet archived:
 
 Completed tracks available for archiving:
 
-1. [x] auth_20250110 - User Authentication (completed 2025-01-12)
-2. [x] setup-ci_20250108 - CI Pipeline Setup (completed 2025-01-09)
+1. auth_20250110 - User Authentication (completed 2025-01-12)
+2. setup-ci_20250108 - CI Pipeline Setup (completed 2025-01-09)
 
 Already archived: {N} tracks
 
@@ -351,8 +349,8 @@ Select option:
 No completed tracks available for archiving.
 
 Current tracks:
-- [~] nav-fix_20250114 - In progress
-- [ ] api-v2_20250115 - Pending
+- nav-fix_20250114 - In progress (status: in-progress)
+- api-v2_20250115 - Pending (status: pending)
 
 Already archived: {N} tracks (use --list archived to view)
 
@@ -371,9 +369,9 @@ Already archived: {N} tracks (use --list archived to view)
 Select tracks to archive (comma-separated numbers, or 'all'):
 
 Completed Tracks:
-[ ] 1. auth_20250110 - User Authentication (completed 2025-01-12)
-[ ] 2. setup-ci_20250108 - CI Pipeline Setup (completed 2025-01-09)
-[ ] 3. docs-update_20250105 - Documentation Update (completed 2025-01-06)
+1. auth_20250110 - User Authentication (completed 2025-01-12)
+2. setup-ci_20250108 - CI Pipeline Setup (completed 2025-01-09)
+3. docs-update_20250105 - Documentation Update (completed 2025-01-06)
 
 Enter selection (e.g., "1,3" or "all"):
 ```
@@ -394,7 +392,7 @@ Archive reason for all: Completed
 
 Actions:
 - Move 2 track directories to .agent/kf/tracks/_archive/
-- Update .agent/kf/tracks.md
+- Update .agent/kf/tracks.yaml via `kf-track update`
 - Create git commit: chore(kf): Archive 2 completed tracks
 
 ================================================================================
@@ -407,7 +405,7 @@ Type 'YES' to proceed, or anything else to cancel:
 - Archive each track sequentially
 - Single git commit for all:
   ```bash
-  git add .agent/kf/tracks/_archive/ .agent/kf/tracks.md
+  git add .agent/kf/tracks/_archive/ .agent/kf/tracks.yaml
   git commit -m "chore(kf): Archive {N} completed tracks"
   ```
 
@@ -467,8 +465,8 @@ Reason:   {archive_reason}
 
 Actions:
 - Move .agent/kf/tracks/_archive/{track-id}/ to .agent/kf/tracks/{track-id}/
-- Update .agent/kf/tracks.md (move to Completed Tracks section)
-- Update metadata.json
+- Update .agent/kf/tracks.yaml via `kf-track update` (set status to completed)
+- Update track.yaml with restore info
 - Create git commit: chore(kf): Restore track '{title}'
 
 Note: Track will be restored with status 'completed'. Use /kf:implement
@@ -487,23 +485,19 @@ Type 'YES' to proceed, or anything else to cancel:
    mv .agent/kf/tracks/_archive/{track-id} .agent/kf/tracks/
    ```
 
-2. Update `.agent/kf/tracks/{track-id}/metadata.json`:
+2. Update `.agent/kf/tracks/{track-id}/track.yaml`:
+   - Set `status: completed`
+   - Set `archived: false`
+   - Add `restored_at: ISO_TIMESTAMP`
 
-   ```json
-   {
-     "archived": false,
-     "restored_at": "ISO_TIMESTAMP",
-     "status": "completed"
-   }
+3. Update `.agent/kf/tracks.yaml` via:
+   ```bash
+   .agent/kf/bin/kf-track update {track-id} --status completed
    ```
-
-3. Update `.agent/kf/tracks.md`:
-   - Remove entry from Archived Tracks section
-   - Add entry to Completed Tracks section
 
 4. Git commit:
    ```bash
-   git add .agent/kf/tracks/{track-id} .agent/kf/tracks.md
+   git add .agent/kf/tracks/{track-id} .agent/kf/tracks.yaml
    git commit -m "chore(kf): Restore track '{title}'"
    ```
 
@@ -581,7 +575,7 @@ Usage: /kf:manage --delete <track-id>
 
 #### 2. Check In-Progress Status
 
-If track status is `[~]` (in progress):
+If track status is `in-progress`:
 
 ```
 ================================================================================
@@ -617,7 +611,7 @@ Type:     {type}
 Status:   {status}
 Location: .agent/kf/tracks/{track-id}/ (or _archive/)
 Created:  {created_date}
-Files:    {count} (spec.md, plan.md, metadata.json, index.md)
+Files:    {count} (track.yaml)
 Commits:  {count} related commits (will NOT be deleted)
 
 This action CANNOT be undone. The track directory and all contents
@@ -642,12 +636,12 @@ Type 'DELETE' to permanently remove, or anything else to cancel:
    rm -rf .agent/kf/tracks/_archive/{track-id}
    ```
 
-2. Update `.agent/kf/tracks.md`:
-   - Remove entry from appropriate section (Active, Completed, or Archived)
+2. Update `.agent/kf/tracks.yaml`:
+   - Remove entry via `kf-track` CLI or manually edit YAML
 
 3. Git commit:
    ```bash
-   git add .agent/kf/tracks.md
+   git add .agent/kf/tracks.yaml
    git commit -m "chore(kf): Delete track '{title}'"
    ```
 
@@ -682,8 +676,8 @@ Display menu of all tracks for selection:
 Select a track to delete:
 
 Active/Completed:
-1. [ ] nav-fix_20250114 - Navigation Bug Fix
-2. [x] auth_20250110 - User Authentication
+1. nav-fix_20250114 - Navigation Bug Fix (pending)
+2. auth_20250110 - User Authentication (completed)
 
 Archived:
 3. old-feature_20241201 - Old Feature
@@ -758,9 +752,8 @@ New ID:   {new-id}
 
 Changes:
 - Rename .agent/kf/tracks/{old-id}/ to {new-id}/
-- Update tracks.md entry
-- Update metadata.json id field
-- Update plan.md track ID header
+- Update tracks.yaml entry via `kf-track` CLI
+- Update track.yaml id field
 
 Note: Git commit history will retain original track ID references.
       Related commits cannot be renamed.
@@ -780,28 +773,18 @@ Type 'YES' to proceed, or anything else to cancel:
    mv .agent/kf/tracks/_archive/{old-id} .agent/kf/tracks/_archive/{new-id}
    ```
 
-2. Update `.agent/kf/tracks/{new-id}/metadata.json`:
-
-   ```json
-   {
-     "id": "{new-id}",
-     "previous_ids": ["{old-id}"],
-     "renamed_at": "ISO_TIMESTAMP"
-   }
-   ```
+2. Update `.agent/kf/tracks/{new-id}/track.yaml`:
+   - Set `id: {new-id}`
+   - Add `previous_ids: ["{old-id}"]`
+   - Set `renamed_at: ISO_TIMESTAMP`
 
    If `previous_ids` already exists, append the old ID.
 
-3. Update `.agent/kf/tracks/{new-id}/plan.md`:
-   - Change track ID in header line
+3. Update `.agent/kf/tracks.yaml` via `kf-track` CLI
 
-4. Update `.agent/kf/tracks.md`:
-   - Update the track ID in the appropriate section
-   - Update folder link path
-
-5. Git commit:
+4. Git commit:
    ```bash
-   git add .agent/kf/tracks/{new-id} .agent/kf/tracks.md
+   git add .agent/kf/tracks/{new-id} .agent/kf/tracks.yaml
    git commit -m "chore(kf): Rename track '{old-id}' to '{new-id}'"
    ```
 
@@ -867,27 +850,25 @@ Detect and fix orphaned track artifacts.
 **Directory Orphans:**
 
 - Scan `.agent/kf/tracks/` for directories
-- Check each against tracks.md entries
+- Check each against `tracks.yaml` entries (via `kf-track list`)
 - Flag directories not in registry
 
 **Registry Orphans:**
 
-- Parse tracks.md for all track entries
+- Parse `tracks.yaml` for all track entries
 - Check each has a corresponding directory
 - Flag entries without directories
 
 **Incomplete Tracks:**
 
 - For each track directory, verify required files exist:
-  - `spec.md`
-  - `plan.md`
-  - `metadata.json`
+  - `track.yaml`
 - Flag tracks missing required files
 
 **Stale In-Progress:**
 
-- Find tracks with status `[~]`
-- Check `metadata.json` `updated` timestamp
+- Find tracks with status `in-progress`
+- Check `track.yaml` `updated` timestamp
 - Flag if untouched for > 7 days
 
 ### 2. Display Results
@@ -899,15 +880,15 @@ Detect and fix orphaned track artifacts.
 
 Scanning for issues...
 
-ORPHANED DIRECTORIES (not in tracks.md):
+ORPHANED DIRECTORIES (not in tracks.yaml):
   1. .agent/kf/tracks/test-feature_20241201/
   2. .agent/kf/tracks/experiment_20241220/
 
 REGISTRY ORPHANS (no matching folder):
-  3. broken-track_20250101 (listed in tracks.md)
+  3. broken-track_20250101 (listed in tracks.yaml)
 
 INCOMPLETE TRACKS (missing files):
-  4. partial_20250105/ - missing: metadata.json, index.md
+  4. partial_20250105/ - missing: track.yaml
 
 STALE IN-PROGRESS (untouched >7 days):
   5. old-work_20250101 - last updated: 2025-01-02
@@ -917,8 +898,8 @@ STALE IN-PROGRESS (untouched >7 days):
 Found {N} issues.
 
 Actions:
-1. Add orphaned directories to tracks.md
-2. Remove registry orphans from tracks.md
+1. Add orphaned directories to tracks.yaml
+2. Remove registry orphans from tracks.yaml
 3. Create missing files from templates
 4. Archive stale tracks
 A. Fix all issues automatically
@@ -949,30 +930,30 @@ All tracks are properly registered and complete.
 **For Directory Orphans (Action 1):**
 
 ```
-Adding orphaned directories to tracks.md...
+Adding orphaned directories to tracks.yaml...
 
 For each directory:
-- Read metadata.json if exists for track info
-- If no metadata, prompt for track details:
+- Read track.yaml if exists for track info
+- If no track.yaml, prompt for track details:
 
   Found: .agent/kf/tracks/test-feature_20241201/
 
   Enter track title (or 'skip' to ignore):
   Enter track type (feature/bug/chore/refactor):
 
-- Add entry to appropriate section in tracks.md
-- Create metadata.json if missing
+- Add entry via `kf-track add {trackId}`
+- Create track.yaml if missing
 ```
 
 **For Registry Orphans (Action 2):**
 
 ```
-Removing registry orphans from tracks.md...
+Removing registry orphans from tracks.yaml...
 
 Removed entries:
 - broken-track_20250101
 
-Note: No files were deleted, only tracks.md was updated.
+Note: No files were deleted, only tracks.yaml was updated.
 ```
 
 **For Incomplete Tracks (Action 3):**
@@ -981,8 +962,7 @@ Note: No files were deleted, only tracks.md was updated.
 Creating missing files from templates...
 
 partial_20250105/:
-- Created metadata.json from template
-- Created index.md from template
+- Created track.yaml from template
 
 Note: You may need to populate these files with actual content.
 ```
@@ -1013,7 +993,7 @@ git commit -m "chore(kf): Clean up {N} orphaned track artifacts"
 ================================================================================
 
 Fixed {N} issues:
-- Added {X} orphaned directories to tracks.md
+- Added {X} orphaned directories to tracks.yaml
 - Removed {Y} registry orphans
 - Created missing files for {Z} incomplete tracks
 - Archived {W} stale tracks
@@ -1034,7 +1014,7 @@ GIT ERROR: {error message}
 
 The operation partially completed:
 - Directory moved: Yes/No
-- tracks.md updated: Yes/No
+- tracks.yaml updated: Yes/No
 - Commit created: No
 
 You may need to manually:
@@ -1043,10 +1023,10 @@ You may need to manually:
 
 Current state:
 - Track location: {path}
-- tracks.md: {status}
+- tracks.yaml: {status}
 
 To retry the commit:
-  git add .agent/kf/tracks.md .agent/kf/tracks/{track-id}
+  git add .agent/kf/tracks.yaml .agent/kf/tracks/{track-id}
   git commit -m "{intended message}"
 ```
 
@@ -1090,7 +1070,7 @@ Examples:
    - 'YES' for archive, restore, rename
    - 'DELETE' for permanent deletion
 3. **HALT on any error** - Do not attempt to continue past failures
-4. **UPDATE tracks.md** - Keep registry in sync with file system
+4. **UPDATE tracks.yaml** - Keep registry in sync with file system (use `kf-track` CLI)
 5. **COMMIT changes** - Create git commits for traceability
 6. **PRESERVE history** - Git commits are never modified or deleted
 7. **WARN for in-progress** - Extra caution when modifying active work

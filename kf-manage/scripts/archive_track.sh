@@ -12,71 +12,80 @@ TRACK_ID="$1"
 REASON="${2:-Completed}"
 TRACK_DIR=".agent/kf/tracks/$TRACK_ID"
 ARCHIVE_DIR=".agent/kf/tracks/_archive/$TRACK_ID"
-METADATA_FILE="$TRACK_DIR/metadata.json"
-TRACKS_MD=".agent/kf/tracks.md"
+TRACK_YAML="$TRACK_DIR/track.yaml"
+TRACKS_YAML=".agent/kf/tracks.yaml"
 
 if [ ! -d "$TRACK_DIR" ]; then
   echo "Error: Track directory '$TRACK_DIR' does not exist."
   exit 1
 fi
 
-# Fetch the track title from metadata.json before moving
-TITLE=$(python3 -c "import json; print(json.load(open('$METADATA_FILE'))['title'])")
+# Fetch the track title from track.yaml before moving
+TITLE=$(sed -n 's/^title: *//p' "$TRACK_YAML" | head -1 | sed 's/^["'"'"']\(.*\)["'"'"']$/\1/')
 TODAY=$(date '+%Y-%m-%d')
+TIMESTAMP=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
 echo "Archiving track: $TRACK_ID ($TITLE)..."
 
-# 1. Update metadata.json status to 'archived', record reason & date.
+# 1. Update track.yaml status to 'archived', record reason & date.
 python3 -c "
-import json
-from datetime import datetime
-file_path = '$METADATA_FILE'
-with open(file_path, 'r') as f:
-    data = json.load(f)
-    
-data['status'] = 'archived'
-data['archived'] = True
-data['archived_at'] = datetime.now().astimezone().isoformat()
-data['archive_reason'] = '$REASON'
+import sys
+lines = open('$TRACK_YAML').read()
 
-with open(file_path, 'w') as f:
-    json.dump(data, f, indent=2)
+# Update or add fields
+import re
+
+def set_yaml_field(content, field, value):
+    pattern = r'^' + field + r':.*$'
+    replacement = field + ': ' + value
+    if re.search(pattern, content, re.MULTILINE):
+        return re.sub(pattern, replacement, content, flags=re.MULTILINE)
+    else:
+        return content.rstrip() + '\n' + replacement + '\n'
+
+lines = set_yaml_field(lines, 'status', 'archived')
+lines = set_yaml_field(lines, 'archived', 'true')
+lines = set_yaml_field(lines, 'archived_at', '\"$TIMESTAMP\"')
+lines = set_yaml_field(lines, 'archive_reason', '\"$REASON\"')
+
+with open('$TRACK_YAML', 'w') as f:
+    f.write(lines)
 "
 
 # 2. Move to archive
 mkdir -p .agent/kf/tracks/_archive
 mv "$TRACK_DIR" "$ARCHIVE_DIR"
 
-# 3. Update the master tracks.md registry
-if [ -f "$TRACKS_MD" ]; then
-  # Remove the row from the table
-  sed -i '' "/|.*$TRACK_ID.*/d" "$TRACKS_MD"
-  
-  # Ensure an ## Archived Tracks header exists, or append it
-  if ! grep -q "## Archived Tracks" "$TRACKS_MD"; then
-    echo -e "\n## Archived Tracks\n" >> "$TRACKS_MD"
+# 3. Update the master tracks.yaml registry via kf-track CLI
+if [ -x ".agent/kf/bin/kf-track" ]; then
+  .agent/kf/bin/kf-track update "$TRACK_ID" --status archived
+else
+  # Fallback: update tracks.yaml directly if CLI not available
+  if [ -f "$TRACKS_YAML" ]; then
+    python3 -c "
+import re
+content = open('$TRACKS_YAML').read()
+
+# Update the status field for this track in the YAML registry
+# This handles a simple flat list format
+pattern = r'(- id: $TRACK_ID\n(?:  \w.*\n)*?  status: )\w+'
+replacement = r'\1archived'
+updated = re.sub(pattern, replacement, content)
+
+if updated == content:
+    # Try alternate YAML format where track ID is a key
+    pattern = r'($TRACK_ID:\n(?:  \w.*\n)*?  status: )\w+'
+    replacement = r'\1archived'
+    updated = re.sub(pattern, replacement, content)
+
+with open('$TRACKS_YAML', 'w') as f:
+    f.write(updated)
+"
   fi
-  
-  # Append the specific track entry
-  cat <<EOF >> "$TRACKS_MD"
-### $TRACK_ID: $TITLE
-
-**Reason:** $REASON
-**Archived:** $TODAY
-**Folder:** [./tracks/_archive/$TRACK_ID/](./tracks/_archive/$TRACK_ID/)
-EOF
 fi
 
-# 6. Update the root kiloforge index.md
-KF_INDEX=".agent/kf/index.md"
-if [ -f "$KF_INDEX" ]; then
-  # Remove the track from the Active Tracks list
-  sed -i '' "/.*$TRACK_ID.*/d" "$KF_INDEX"
-  git add "$KF_INDEX"
-fi
-
-# 7. Commit the changes
-git add "$ARCHIVE_DIR" "$TRACKS_MD"
+# 4. Commit the changes
+git add "$ARCHIVE_DIR" "$TRACKS_YAML"
 git commit -m "chore(kf): archive track '$TRACK_ID' (Reason: $REASON)"
 
 echo "Successfully archived $TRACK_ID!"

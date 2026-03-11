@@ -29,7 +29,7 @@ Revert changes by logical work unit with full git awareness. Supports reverting 
 ## Pre-flight Checks
 
 1. Verify Kiloforge is initialized:
-   - Check `.agent/kf/tracks.md` exists
+   - Check `.agent/kf/tracks.yaml` exists
    - If missing: Display error and suggest running `/kf-setup` first
 
 2. Verify git repository:
@@ -83,12 +83,12 @@ Display guided selection menu:
 What would you like to revert?
 
 Currently In Progress:
-1. [~] Task 2.3 in dashboard_20250112140000Z (most recent)
+1. in-progress  Task 2.3 in dashboard_20250112140000Z (most recent)
 
 Recently Completed:
-2. [x] Task 2.2 in dashboard_20250112140000Z (1 hour ago)
-3. [x] Phase 1 in dashboard_20250112140000Z (3 hours ago)
-4. [x] Full track: auth_20250115100000Z (yesterday)
+2. completed  Task 2.2 in dashboard_20250112140000Z (1 hour ago)
+3. completed  Phase 1 in dashboard_20250112140000Z (3 hours ago)
+4. completed  Full track: auth_20250115100000Z (yesterday)
 
 Options:
 5. Enter specific reference (track:phase or track:task)
@@ -107,7 +107,7 @@ Select option:
    git log --oneline --grep="{trackId}" --grep="Task {X.Y}" --all-match
    ```
 
-2. Also find the plan.md update commit:
+2. Also find the track.yaml update commit:
 
    ```bash
    git log --oneline --grep="mark task {X.Y} complete" --grep="{trackId}" --all-match
@@ -117,7 +117,7 @@ Select option:
 
 ### For Phase Revert
 
-1. Determine task range for the phase by reading plan.md
+1. Determine task range for the phase by reading track.yaml
 2. Search for all task commits in that phase:
 
    ```bash
@@ -125,7 +125,7 @@ Select option:
    ```
 
 3. Find phase verification commit if exists
-4. Find all plan.md update commits for phase tasks
+4. Find all track.yaml update commits for phase tasks
 5. Collect all matching commit SHAs in chronological order
 
 ### For Full Track Revert
@@ -164,11 +164,11 @@ Commits to revert (in reverse chronological order):
 Files that will be affected:
   - src/components/Dashboard.tsx (modified)
   - src/hooks/useData.ts (will be deleted - was created in these commits)
-  - .agent/kf/tracks/dashboard_20250112140000Z/plan.md (modified)
+  - .agent/kf/tracks/dashboard_20250112140000Z/track.yaml (modified)
 
 Plan updates:
-  - Task 2.2: [x] -> [ ]
-  - Task 2.3: [~] -> [ ]
+  - Task 2.2: completed -> pending
+  - Task 2.3: in-progress -> pending
 
 ================================================================================
                               !! WARNING !!
@@ -239,32 +239,31 @@ Select option:
 
 **HALT immediately on any conflict. Do not attempt automatic resolution.**
 
-## Plan.md Updates
+## Track YAML Updates
 
-After successful git reverts, update plan.md:
+After successful git reverts, update track.yaml:
 
-1. Read current plan.md
-2. For each reverted task, change marker:
-   - `[x]` -> `[ ]`
-   - `[~]` -> `[ ]`
-3. Write updated plan.md
-4. Update metadata.json:
-   - Decrement `tasks.completed`
-   - Update `status` if needed
-   - Update `updated` timestamp
+1. For each reverted task, reset status to pending using CLI:
+   ```bash
+   .agent/kf/bin/kf-track-content task {trackId} X.Y --undo
+   ```
+2. Update track status in track.yaml using CLI:
+   ```bash
+   .agent/kf/bin/kf-track update {trackId} --status pending
+   ```
 
-**Do NOT commit plan.md changes** - they are part of the revert operation
+**Do NOT commit track.yaml changes** - they are part of the revert operation
 
 ## Track Status Updates
 
 ### If reverting entire track:
 
-- In tracks.md: Change `[x]` or `[~]` to `[ ]`
+- In tracks.yaml: Change status to `pending`
 - Consider offering to delete the track directory entirely
 
 ### If reverting to incomplete state:
 
-- In tracks.md: Ensure marked as `[~]` if partially complete, `[ ]` if fully reverted
+- In tracks.yaml: Ensure status is `in-progress` if partially complete, `pending` if fully reverted
 
 ## Verification
 
@@ -283,9 +282,9 @@ Summary:
 Git log now shows:
   {recent commit history}
 
-Plan.md status:
-  - Task 2.2: [ ] Pending
-  - Task 2.3: [ ] Pending
+Track status:
+  - Task 2.2: pending
+  - Task 2.3: pending
 
 ================================================================================
 

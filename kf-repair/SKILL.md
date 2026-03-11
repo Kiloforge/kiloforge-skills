@@ -104,7 +104,7 @@ echo "Primary branch: $PRIMARY_BRANCH"
 
 Check these files exist:
 ```bash
-git show ${PRIMARY_BRANCH}:.agent/kf/product.md > /dev/null 2>&1
+git show ${PRIMARY_BRANCH}:.agent/kf/product.yaml > /dev/null 2>&1
 git show ${PRIMARY_BRANCH}:.agent/kf/tracks.yaml > /dev/null 2>&1
 ```
 
