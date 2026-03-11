@@ -41,7 +41,6 @@ After installing, open Claude Code in any project and run `/kf-getting-started` 
 | `/kf-compact-archive` | Remove archived track directories |
 | `/kf-advisor-product` | Product strategy and competitive analysis |
 | `/kf-advisor-reliability` | Codebase reliability audit |
-| `/kf-bin` | List available CLI tools and usage |
 | `/kf-data-guardian` | Data integrity guard (embedded by other skills) |
 | `/kf-parallel` | Deprecated — redirects to kf-architect/kf-developer |
 
