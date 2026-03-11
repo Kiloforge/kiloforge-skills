@@ -54,6 +54,7 @@ git show ${PRIMARY_BRANCH}:.agent/kf/tracks/ > /dev/null 2>&1 && echo "PASS: .ag
 git show ${PRIMARY_BRANCH}:.agent/kf/bin/kf-primary-branch > /dev/null 2>&1 && echo "PASS: kf-primary-branch exists" || echo "FAIL: kf-primary-branch missing"
 git show ${PRIMARY_BRANCH}:.agent/kf/bin/kf-track > /dev/null 2>&1 && echo "PASS: kf-track exists" || echo "FAIL: kf-track missing"
 git show ${PRIMARY_BRANCH}:.agent/kf/bin/kf-track-content > /dev/null 2>&1 && echo "PASS: kf-track-content exists" || echo "FAIL: kf-track-content missing"
+git show ${PRIMARY_BRANCH}:.agent/kf/bin/kf-merge > /dev/null 2>&1 && echo "PASS: kf-merge exists" || echo "FAIL: kf-merge missing"
 git show ${PRIMARY_BRANCH}:.agent/kf/bin/kf-merge-lock > /dev/null 2>&1 && echo "PASS: kf-merge-lock exists" || echo "FAIL: kf-merge-lock missing"
 git show ${PRIMARY_BRANCH}:.agent/kf/bin/kf-worktree-env > /dev/null 2>&1 && echo "PASS: kf-worktree-env exists" || echo "FAIL: kf-worktree-env missing"
 ```

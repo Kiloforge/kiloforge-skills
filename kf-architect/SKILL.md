@@ -465,7 +465,9 @@ multi-dep-track_20260309000002Z:
 
 ## Phase 5: Merge to Primary Branch
 
-The architect must merge its track artifacts to the primary branch so that developer workers can see and claim them. This merge is lightweight — no test verification required since only `.agent/kf/` files are changed.
+The architect must merge its track artifacts to the primary branch so that developer workers can see and claim them. This is a **metadata merge** — no test verification required since only `.agent/kf/` files are changed.
+
+For the full merge protocol details, see `kf-merge-protocol/SKILL.md`.
 
 ### Step 11 — Pre-merge: Reconcile track state
 
@@ -492,152 +494,28 @@ If the primary branch has advanced:
 
 3. **Our merge only adds new tracks** — it should not modify the status of existing tracks. If our `tracks.yaml` edits conflict with the primary branch's state, the primary branch's state wins for existing tracks. Only our new track entries should be added.
 
-### Step 12 — Acquire merge lock and merge
+### Step 12 — Merge to primary branch
 
-#### 12a. Acquire the cross-worktree merge lock
-
-The merge lock supports two modes: **HTTP** (via kiloforge lock API) with automatic fallback to **mkdir** (local filesystem).
-
-**Setup — determine lock mode and define helpers:**
+Use the shared `kf-merge` script for the full lock → rebase → merge → release protocol. The architect performs a **metadata merge** (no verification needed):
 
 ```bash
-ORCH_URL="${KF_ORCH_URL:-http://localhost:4001}"
-HOLDER="$(basename $(pwd))"  # e.g., "architect-1"
-LOCK_MODE=""
-HEARTBEAT_PID=""
+# Build the reapply command for all new tracks in this batch
+REAPPLY_CMD=""
+for track in {list of new track IDs}; do
+  REAPPLY_CMD="$REAPPLY_CMD; .agent/kf/bin/kf-track add $track --title '...' --type ..."
+done
 
-is_orch_running() {
-  curl -sf "$ORCH_URL/health" -o /dev/null 2>/dev/null
-}
-
-release_lock() {
-  if [ -n "$HEARTBEAT_PID" ]; then
-    kill $HEARTBEAT_PID 2>/dev/null; wait $HEARTBEAT_PID 2>/dev/null
-    HEARTBEAT_PID=""
-  fi
-  if [ "$LOCK_MODE" = "http" ]; then
-    curl -sf -X DELETE "$ORCH_URL/-/api/locks/merge" \
-      -H "Content-Type: application/json" \
-      -d "{\"holder\": \"$HOLDER\"}" 2>/dev/null || true
-  elif [ "$LOCK_MODE" = "mkdir" ]; then
-    rm -rf "$(git rev-parse --git-common-dir)/merge.lock"
-  fi
-  echo "Lock released (mode: ${LOCK_MODE:-none})"
-}
-
-start_heartbeat() {
-  if [ "$LOCK_MODE" = "http" ]; then
-    while true; do
-      sleep 30
-      curl -sf -X POST "$ORCH_URL/-/api/locks/merge/heartbeat" \
-        -H "Content-Type: application/json" \
-        -d "{\"holder\": \"$HOLDER\", \"ttl_seconds\": 120}" 2>/dev/null || true
-    done &
-    HEARTBEAT_PID=$!
-  fi
-}
+.agent/kf/bin/kf-merge \
+  --holder "$(basename $(pwd))" \
+  --timeout 0 \
+  --reapply "$REAPPLY_CMD"
 ```
 
-**Acquire (try once, HALT if held):**
+**Exit code 2** means the lock is held — report and **HALT** (wait for other worker to finish, then retry).
 
-```bash
-if is_orch_running; then
-  if curl -sf -X POST "$ORCH_URL/-/api/locks/merge/acquire" \
-    -H "Content-Type: application/json" \
-    -d "{\"holder\": \"$HOLDER\", \"ttl_seconds\": 120, \"timeout_seconds\": 0}" \
-    -o /dev/null 2>/dev/null; then
-    LOCK_MODE="http"
-    echo "Merge lock acquired (HTTP)"
-  else
-    echo "MERGE LOCK HELD — Another worker is currently merging. Wait for them to finish."
-    exit 1
-  fi
-else
-  LOCK_DIR="$(git rev-parse --git-common-dir)/merge.lock"
-  if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-    echo "MERGE LOCK HELD — Another worker is currently merging. Wait for them to finish."
-    echo "Lock info: $(cat "$LOCK_DIR/info" 2>/dev/null || echo 'unknown')"
-    exit 1
-  fi
-  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $HOLDER" > "$LOCK_DIR/info" 2>/dev/null
-  LOCK_MODE="mkdir"
-  echo "Merge lock acquired (mkdir fallback — orchestrator unavailable)"
-fi
-start_heartbeat
-```
+**Exit code 1** means the merge failed — report and **HALT**.
 
-If lock held: report and **HALT** (wait for other worker to finish, then retry).
-
-**CRITICAL: NEVER force-remove another worker's lock.** Do not `rm -rf` the lock directory or force-release an HTTP lock held by another worker. The lock exists to coordinate merges — removing it risks corrupting the merge of the worker that holds it. If the lock appears stale, report it and wait for user instructions. Only the lock holder or the user may release it.
-
-**From this point: call `release_lock` on ANY failure.**
-
-#### 12b. Rebase onto latest primary branch
-
-```bash
-if ! git rebase ${PRIMARY_BRANCH}; then
-  echo "Rebase conflict detected — resolving track state files..."
-fi
-```
-
-**On conflict — simplified resolution for track state files:**
-
-Track state files (`tracks.yaml`, `deps.yaml`, `conflicts.yaml`) are append/update structures where the primary branch's version is always ground truth (it reflects all other workers' completions). Accept the primary branch's version, then re-apply your additions via CLI:
-
-```bash
-# Accept the primary branch's version of all track state files
-git checkout --theirs .agent/kf/tracks.yaml .agent/kf/tracks/deps.yaml .agent/kf/tracks/conflicts.yaml 2>/dev/null
-git add .agent/kf/tracks.yaml .agent/kf/tracks/deps.yaml .agent/kf/tracks/conflicts.yaml 2>/dev/null
-
-# Continue the rebase (repeat if multiple conflicting commits)
-git rebase --continue
-```
-
-After rebase completes, re-apply the architect's additions:
-
-```bash
-# Re-register each new track that was part of this generation
-.agent/kf/bin/kf-track add <id> --title "..." --type <type>
-# Re-add dependencies if any
-.agent/kf/bin/kf-track deps add <id> <dep-id>
-# Re-add conflict pairs if any
-.agent/kf/bin/kf-track conflicts add <a> <b> <risk> "note"
-
-# Amend the last commit with re-applied changes
-git add .agent/kf/tracks.yaml .agent/kf/tracks/deps.yaml .agent/kf/tracks/conflicts.yaml
-git commit --amend --no-edit
-```
-
-If a **non-state file** conflicts (e.g., per-track `track.yaml`), that is a genuine conflict — release lock, report, and **HALT**.
-
-If rebase still fails after resolution: `release_lock`, report, **HALT**.
-
-#### 12c. Fast-forward merge into primary branch
-
-**No test verification needed** — architect only modifies `.agent/kf/` artifacts.
-
-```bash
-if git -C {main-worktree-path} merge $(git branch --show-current) --ff-only; then
-  release_lock
-  echo "MERGE SUCCEEDED — lock released"
-else
-  release_lock
-  echo "MERGE FAILED — lock released"
-  exit 1
-fi
-```
-
-On failure: lock released. Report and **HALT**.
-
-#### 12d. Reset to primary branch
-
-After successful merge, reset the generator branch to the primary branch:
-
-```bash
-git reset --hard ${PRIMARY_BRANCH}
-```
-
-This keeps the generator in sync for the next track generation cycle.
+See `kf-merge-protocol/SKILL.md` for the full protocol details, conflict resolution strategy, and safety rules.
 
 ---
 

@@ -1,0 +1,192 @@
+#!/bin/sh
+# kf-merge — Unified merge protocol for Kiloforge agents.
+#
+# Merges the current branch into the primary branch using a lock-protected,
+# rebase-based, fast-forward-only strategy. Handles lock acquisition,
+# heartbeat, conflict resolution for track state files, optional verification,
+# and cleanup.
+#
+# USAGE:
+#   kf-merge [OPTIONS]
+#
+# OPTIONS:
+#   --holder NAME         Lock holder identity (default: basename of cwd)
+#   --timeout SECONDS     Lock acquisition timeout; 0=fail if held (default: 0)
+#   --verify CMD          Verification command to run post-rebase (skip if omitted)
+#   --conflict-strategy   How to resolve track state conflicts:
+#                           "theirs" (default) — accept primary branch version
+#                           "ours"  — accept current branch version (for reports)
+#   --reapply CMD         Command to re-apply track state changes after conflict
+#                         resolution (e.g., "kf-track update X --status completed")
+#   --cleanup-branch NAME Delete this branch after merge (implementation branch)
+#   --no-reset            Don't reset current branch to primary after merge
+#
+# EXIT CODES:
+#   0  Merge succeeded
+#   1  Merge failed (lock released, safe to retry)
+#   2  Lock held by another worker (not acquired)
+#
+# FLOWS:
+#   Metadata merge (architect, report — no verification):
+#     kf-merge --holder architect-1 --timeout 0
+#
+#   Implementation merge (developer — with verification):
+#     kf-merge --holder developer-1 --timeout 300 \
+#       --verify "make test && make build && make lint" \
+#       --reapply ".agent/kf/bin/kf-track update X --status completed" \
+#       --cleanup-branch feature/my-track
+#
+# PROTOCOL:
+#   1. Resolve primary branch (via kf-primary-branch)
+#   2. Locate primary branch worktree
+#   3. Acquire merge lock (via kf-merge-lock)
+#   4. Start heartbeat
+#   5. Rebase onto primary branch
+#   6. Resolve track state conflicts (if any)
+#   7. Run reapply command (if provided)
+#   8. Run verification (if --verify provided)
+#   9. Fast-forward merge into primary branch
+#  10. Release lock + stop heartbeat
+#  11. Cleanup (delete branch, reset to primary)
+
+set -eu
+
+# ── Defaults ──────────────────────────────────────────────────────────────────
+HOLDER="$(basename "$(pwd)")"
+TIMEOUT=0
+VERIFY_CMD=""
+CONFLICT_STRATEGY="theirs"
+REAPPLY_CMD=""
+CLEANUP_BRANCH=""
+DO_RESET=true
+HEARTBEAT_PID=""
+LOCK_ACQUIRED=false
+KF_BIN="$(cd "$(dirname "$0")" && pwd)"
+
+# ── Parse arguments ───────────────────────────────────────────────────────────
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --holder)           HOLDER="$2"; shift 2 ;;
+    --timeout)          TIMEOUT="$2"; shift 2 ;;
+    --verify)           VERIFY_CMD="$2"; shift 2 ;;
+    --conflict-strategy) CONFLICT_STRATEGY="$2"; shift 2 ;;
+    --reapply)          REAPPLY_CMD="$2"; shift 2 ;;
+    --cleanup-branch)   CLEANUP_BRANCH="$2"; shift 2 ;;
+    --no-reset)         DO_RESET=false; shift ;;
+    -h|--help)          sed -n '2,/^$/p' "$0" | sed 's/^# \?//'; exit 0 ;;
+    *)                  echo "Unknown option: $1" >&2; exit 1 ;;
+  esac
+done
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+die() { echo "ERROR: $*" >&2; cleanup; exit 1; }
+
+cleanup() {
+  # Stop heartbeat
+  if [ -n "$HEARTBEAT_PID" ]; then
+    kill "$HEARTBEAT_PID" 2>/dev/null || true
+    wait "$HEARTBEAT_PID" 2>/dev/null || true
+    HEARTBEAT_PID=""
+  fi
+  # Release lock if we acquired it
+  if [ "$LOCK_ACQUIRED" = true ]; then
+    "$KF_BIN/kf-merge-lock" release 2>/dev/null || true
+    LOCK_ACQUIRED=false
+    echo "Lock released."
+  fi
+}
+
+trap cleanup EXIT
+
+# ── Step 1: Resolve primary branch ───────────────────────────────────────────
+PRIMARY_BRANCH=$("$KF_BIN/kf-primary-branch")
+CURRENT_BRANCH=$(git branch --show-current)
+echo "Merge: $CURRENT_BRANCH → $PRIMARY_BRANCH (holder: $HOLDER)"
+
+# ── Step 2: Locate primary branch worktree ───────────────────────────────────
+MAIN_WORKTREE=$(git worktree list | grep -E "\[$PRIMARY_BRANCH\]" | awk '{print $1}')
+if [ -z "$MAIN_WORKTREE" ]; then
+  # Might be a single-worktree repo (primary branch is HEAD of main worktree)
+  MAIN_WORKTREE=$(git worktree list | head -1 | awk '{print $1}')
+fi
+echo "Primary worktree: $MAIN_WORKTREE"
+
+# ── Step 3: Acquire merge lock ───────────────────────────────────────────────
+echo "Acquiring merge lock (timeout: ${TIMEOUT}s)..."
+if ! "$KF_BIN/kf-merge-lock" acquire --timeout "$TIMEOUT"; then
+  echo "MERGE LOCK HELD — another worker is merging. Retry later."
+  exit 2
+fi
+LOCK_ACQUIRED=true
+echo "Lock acquired."
+
+# ── Step 4: Start heartbeat ──────────────────────────────────────────────────
+(while true; do "$KF_BIN/kf-merge-lock" heartbeat 2>/dev/null; sleep 30; done) &
+HEARTBEAT_PID=$!
+
+# ── Step 5: Rebase onto primary branch ───────────────────────────────────────
+echo "Rebasing onto $PRIMARY_BRANCH..."
+if ! git rebase "$PRIMARY_BRANCH" 2>/dev/null; then
+  echo "Rebase conflict detected — resolving track state files..."
+
+  # Track state files: resolve per strategy
+  STATE_FILES=".agent/kf/tracks.yaml .agent/kf/tracks/deps.yaml .agent/kf/tracks/conflicts.yaml"
+  REPORT_FILES=".agent/kf/_reports/"
+
+  if [ "$CONFLICT_STRATEGY" = "theirs" ]; then
+    # Accept primary branch version of track state files
+    for f in $STATE_FILES; do
+      git checkout --theirs "$f" 2>/dev/null && git add "$f" 2>/dev/null || true
+    done
+  elif [ "$CONFLICT_STRATEGY" = "ours" ]; then
+    # Accept our version (used for reports)
+    git checkout --ours "$REPORT_FILES" 2>/dev/null && git add "$REPORT_FILES" 2>/dev/null || true
+    for f in $STATE_FILES; do
+      git checkout --theirs "$f" 2>/dev/null && git add "$f" 2>/dev/null || true
+    done
+  fi
+
+  if ! git rebase --continue 2>/dev/null; then
+    die "Rebase failed after conflict resolution — non-state file conflict. Manual intervention required."
+  fi
+
+  # Re-apply track state changes after accepting theirs
+  if [ -n "$REAPPLY_CMD" ]; then
+    echo "Re-applying track state changes..."
+    eval "$REAPPLY_CMD" || die "Reapply command failed: $REAPPLY_CMD"
+    git add $STATE_FILES 2>/dev/null || true
+    git commit --amend --no-edit 2>/dev/null || true
+  fi
+fi
+echo "Rebase complete."
+
+# ── Step 6: Post-rebase verification ─────────────────────────────────────────
+if [ -n "$VERIFY_CMD" ]; then
+  echo "Running verification: $VERIFY_CMD"
+  if ! eval "$VERIFY_CMD"; then
+    die "Verification failed. Fix issues and retry."
+  fi
+  echo "Verification passed."
+fi
+
+# ── Step 7: Fast-forward merge into primary branch ───────────────────────────
+echo "Merging into $PRIMARY_BRANCH (fast-forward only)..."
+if ! git -C "$MAIN_WORKTREE" merge "$CURRENT_BRANCH" --ff-only; then
+  die "Fast-forward merge failed — primary branch has diverged."
+fi
+echo "MERGE SUCCEEDED."
+
+# ── Step 8: Cleanup ──────────────────────────────────────────────────────────
+# Lock + heartbeat released by trap
+
+# Delete implementation branch if requested
+if [ -n "$CLEANUP_BRANCH" ]; then
+  git branch -d "$CLEANUP_BRANCH" 2>/dev/null || true
+fi
+
+# Reset to primary branch (keeps worktree in sync)
+if [ "$DO_RESET" = true ]; then
+  git reset --hard "$PRIMARY_BRANCH" 2>/dev/null || true
+fi
+
+echo "Done."

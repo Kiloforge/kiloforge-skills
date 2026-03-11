@@ -436,6 +436,7 @@ This installs the following tools:
 | `kf-primary-branch` | sh | Resolves the primary branch from config.yaml |
 | `kf-track` | bash | Track registry management (add, list, update, deps, conflicts) |
 | `kf-track-content` | python3 | Track content management (init, show, spec, plan, task progress) |
+| `kf-merge` | sh | Unified merge protocol (lock, rebase, verify, merge, release) |
 | `kf-merge-lock` | bash | Cross-worktree merge lock (acquire, release, heartbeat) |
 | `kf-worktree-env` | bash | Detect git worktree context and export env vars |
 
@@ -490,6 +491,7 @@ When all files are created:
    - .agent/kf/bin/kf-primary-branch
    - .agent/kf/bin/kf-track
    - .agent/kf/bin/kf-track-content
+   - .agent/kf/bin/kf-merge
    - .agent/kf/bin/kf-merge-lock
    - .agent/kf/bin/kf-worktree-env
    - .agent/kf/code_styleguides/[languages]

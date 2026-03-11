@@ -643,61 +643,27 @@ git checkout "$HOME_BRANCH"
 git branch -d "$REPORT_BRANCH"
 ```
 
-### Step 5 — Acquire merge lock
+### Step 5 — Merge reports to primary branch
 
-Use the shared merge lock helper with a blocking timeout:
-
-```bash
-.agent/kf/bin/kf-merge-lock acquire --timeout 300
-```
-
-Start heartbeat after acquisition:
-```bash
-while true; do .agent/kf/bin/kf-merge-lock heartbeat; sleep 30; done &
-HEARTBEAT_PID=$!
-```
-
-**From this point, release the lock on ANY failure:**
-```bash
-kill $HEARTBEAT_PID 2>/dev/null; wait $HEARTBEAT_PID 2>/dev/null
-.agent/kf/bin/kf-merge-lock release
-```
-
-### Step 6 — Rebase onto latest primary branch
+Use the shared `kf-merge` script for the full lock → rebase → merge → release protocol. Reports are a **metadata merge** (no verification needed), with `--conflict-strategy ours` since new reports should overwrite old ones:
 
 ```bash
-git rebase "$PRIMARY_BRANCH"
+.agent/kf/bin/kf-merge \
+  --holder "$(basename $(pwd))" \
+  --timeout 300 \
+  --conflict-strategy ours \
+  --cleanup-branch "$REPORT_BRANCH" \
+  --no-reset
 ```
 
-Report files rarely conflict. If a conflict occurs in `.agent/kf/_reports/`, accept ours (the new report overwrites the old):
+For the full merge protocol details, see `kf-merge-protocol/SKILL.md`.
 
-```bash
-git checkout --ours .agent/kf/_reports/
-git add .agent/kf/_reports/
-git rebase --continue
-```
+### Step 6 — Cleanup and return to home branch
 
-If any non-report file conflicts: release lock, report, and **HALT**.
-
-### Step 7 — Fast-forward merge into the primary branch
-
-```bash
-git -C "$MAIN_WORKTREE" merge "$REPORT_BRANCH" --ff-only
-```
-
-On success:
-```bash
-kill $HEARTBEAT_PID 2>/dev/null; wait $HEARTBEAT_PID 2>/dev/null
-.agent/kf/bin/kf-merge-lock release
-```
-
-On failure: release lock, report, and **HALT**.
-
-### Step 8 — Cleanup and return to home branch
+After merge succeeds:
 
 ```bash
 git checkout "$HOME_BRANCH"
-git branch -d "$REPORT_BRANCH"
 git reset --hard "$PRIMARY_BRANCH"
 ```
 

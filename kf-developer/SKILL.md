@@ -480,112 +480,49 @@ If `--with-review` **was** provided and review is approved: proceed directly to 
 
 ### Step 11 — Merge sequence
 
-When the user says "merge" (or immediately if auto-merge is enabled (default) / post-review-approval), execute the full merge protocol:
+When the user says "merge" (or immediately if auto-merge is enabled (default) / post-review-approval), execute the full merge protocol. The developer performs an **implementation merge** — verification is mandatory.
 
-#### 11a. Acquire merge lock
+For the full merge protocol details, see `kf-merge-protocol/SKILL.md`.
 
-The merge lock uses the shared `kf-merge-lock` helper script, which handles dual-mode (HTTP/mkdir) acquisition, heartbeat, and release automatically. See `.agent/kf/bin/kf-merge-lock help` for full details.
+#### 11a. Pre-merge verification
 
-**CRITICAL: NEVER force-remove another worker's lock.** Do not `rm -rf` the lock directory or force-release an HTTP lock held by another worker. The lock exists to coordinate merges — removing it risks corrupting the merge of the worker that holds it. If the lock appears stale, report it and wait for user instructions. Only the lock holder or the user may release it.
-
-**Default (auto-merge enabled):** Use blocking acquire with timeout:
+Run the full verification suite **before** acquiring the lock to avoid holding it during long test runs:
 
 ```bash
-.agent/kf/bin/kf-merge-lock acquire --timeout 300
+# Read verification commands from workflow.yaml (e.g., make test && make build && make lint)
+VERIFY_CMD="<commands from workflow.yaml>"
+eval "$VERIFY_CMD"
 ```
 
-**With `--disable-auto-merge`:** Try once (non-blocking). If held, report and **HALT**:
+If verification fails, do **not** attempt to merge. Fix issues first.
+
+#### 11b. Merge via kf-merge
 
 ```bash
-.agent/kf/bin/kf-merge-lock acquire --timeout 0
+VERIFY_CMD="<commands from workflow.yaml>"
+
+.agent/kf/bin/kf-merge \
+  --holder "$(basename $(pwd))" \
+  --timeout 300 \
+  --verify "$VERIFY_CMD" \
+  --reapply ".agent/kf/bin/kf-track update {trackId} --status completed" \
+  --cleanup-branch {type}/{trackId}
 ```
 
-If acquire fails, report lock status and wait for user to say "merge" to retry.
+- `--timeout 300` — wait up to 5 minutes for the lock (auto-merge mode)
+- `--verify` — runs verification again post-rebase (primary branch may have introduced changes)
+- `--reapply` — re-marks the track as completed if track state conflicts were resolved
+- `--cleanup-branch` — deletes the implementation branch after merge
 
-**After acquire, start heartbeat in background:**
+**With `--disable-auto-merge`:** Use `--timeout 0` instead. If lock is held (exit code 2), report and **HALT** — wait for user to say "merge" to retry.
 
-```bash
-while true; do .agent/kf/bin/kf-merge-lock heartbeat; sleep 30; done &
-HEARTBEAT_PID=$!
-```
+#### 11c. Post-merge cleanup
 
-**From this point: release the lock on ANY failure:**
-
-```bash
-kill $HEARTBEAT_PID 2>/dev/null; wait $HEARTBEAT_PID 2>/dev/null
-.agent/kf/bin/kf-merge-lock release
-```
-
-#### 11b. Rebase onto latest primary branch
+After `kf-merge` succeeds:
 
 ```bash
-if ! git rebase ${PRIMARY_BRANCH}; then
-  echo "Rebase conflict detected — resolving track state files..."
-fi
-```
-
-**On conflict — simplified resolution for track state files:**
-
-Track state files (`tracks.yaml`, `deps.yaml`, `conflicts.yaml`) are append/update structures where the primary branch's version is always ground truth (it reflects all other workers' completions). Accept theirs, then re-apply your changes via CLI:
-
-```bash
-# Accept primary branch's version of all track state files
-git checkout --theirs .agent/kf/tracks.yaml .agent/kf/tracks/deps.yaml .agent/kf/tracks/conflicts.yaml 2>/dev/null
-git add .agent/kf/tracks.yaml .agent/kf/tracks/deps.yaml .agent/kf/tracks/conflicts.yaml 2>/dev/null
-
-# Continue the rebase (repeat if multiple conflicting commits)
-git rebase --continue
-```
-
-After rebase completes, re-apply the developer's track state changes:
-
-```bash
-# Re-mark track complete (updates tracks.yaml, prunes deps.yaml and conflicts.yaml)
-.agent/kf/bin/kf-track update {trackId} --status completed
-
-# Amend the last commit with re-applied changes
-git add .agent/kf/tracks.yaml .agent/kf/tracks/deps.yaml .agent/kf/tracks/conflicts.yaml
-git commit --amend --no-edit
-```
-
-If a **non-state file** conflicts (e.g., source code files), that is a genuine conflict — release lock (`kf-merge-lock release`), report, and **HALT**.
-
-If rebase still fails after resolution: release lock (`kf-merge-lock release`), report, **HALT**.
-
-#### 11c. Post-rebase verification
-
-Run the full verification suite from `workflow.yaml` (e.g., `make test`, `make e2e`).
-
-On failure: release lock (`kf-merge-lock release`), report, **HALT**.
-
-#### 11d. Fast-forward merge into primary branch
-
-```bash
-if git -C {primary-branch-worktree-path} merge {type}/{trackId} --ff-only; then
-  kill $HEARTBEAT_PID 2>/dev/null; wait $HEARTBEAT_PID 2>/dev/null
-  .agent/kf/bin/kf-merge-lock release
-  echo "MERGE SUCCEEDED — lock released"
-else
-  kill $HEARTBEAT_PID 2>/dev/null; wait $HEARTBEAT_PID 2>/dev/null
-  .agent/kf/bin/kf-merge-lock release
-  echo "MERGE FAILED — lock released"
-  exit 1
-fi
-```
-
-On failure: lock released. Report and **HALT**.
-
-#### 11e. Cleanup — return to home branch
-
-```bash
-# Verify merge
-git -C {primary-branch-worktree-path} log --oneline -3
-
-# Return to developer home branch FIRST (can't delete current branch)
+# Return to developer home branch
 git checkout {worker-home-branch}
-
-# Delete implementation branch (safe — it's been merged and we've switched away)
-git branch -d {type}/{trackId}
 
 # Clean up any stash branches for this track
 for b in $(git branch --list "stash/{trackId}/*" | sed 's/^[* ]*//'); do
@@ -593,10 +530,10 @@ for b in $(git branch --list "stash/{trackId}/*" | sed 's/^[* ]*//'); do
 done
 
 # If --with-review was used: clean up remote branch and close PR
-# GitHub: gh pr close {pr-number} (if not auto-closed) && git push ${REMOTE_NAME} --delete {type}/{trackId}
+# GitHub: gh pr close {pr-number} && git push ${REMOTE_NAME} --delete {type}/{trackId}
 # Gitea: tea pr close {pr-number} && git push ${REMOTE_NAME} --delete {type}/{trackId}
 
-# Sync home branch to primary branch (updates the marker to post-merge state)
+# Sync home branch to primary branch
 git reset --hard ${PRIMARY_BRANCH}
 ```
 
