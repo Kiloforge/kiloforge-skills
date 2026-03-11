@@ -49,10 +49,9 @@ Before any track lookups or validation, sync to the latest state. Your worktree 
 
 ```bash
 PRIMARY_BRANCH=$(.agent/kf/bin/kf-primary-branch)
-git reset --hard ${PRIMARY_BRANCH}
 ```
 
-This ensures `kf-track-content show`, `kf-track get`, and file reads see the latest track specs and project context.
+Read all track state and project context from the primary branch using `git show ${PRIMARY_BRANCH}:<path>` or `--ref ${PRIMARY_BRANCH}` on CLI commands. Do NOT use `git reset --hard`.
 
 ---
 

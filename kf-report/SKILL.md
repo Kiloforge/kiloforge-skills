@@ -27,12 +27,11 @@ Reports are written to `.agent/kf/_reports/` as markdown files.
 
 ## Pre-flight Checks
 
-1. **Resolve and sync with primary branch** — your working tree may be stale:
+1. **Resolve primary branch:**
    ```bash
    PRIMARY_BRANCH=$(.agent/kf/bin/kf-primary-branch)
-   git reset --hard ${PRIMARY_BRANCH}
    ```
-   This ensures you see the latest track statuses, completed/archived tracks, and project metadata. Without this, reports may show outdated data or miss recently completed tracks.
+   Read all track state and project metadata from the primary branch using `git show ${PRIMARY_BRANCH}:<path>` or `--ref ${PRIMARY_BRANCH}` on CLI commands. Do NOT use `git reset --hard`.
 
 2. Verify Kiloforge is initialized:
    - Check `.agent/kf/product.yaml` exists
@@ -652,8 +651,7 @@ Use the shared `kf-merge` script for the full lock → rebase → merge → rele
   --holder "$(basename $(pwd))" \
   --timeout 300 \
   --conflict-strategy ours \
-  --cleanup-branch "$REPORT_BRANCH" \
-  --no-reset
+  --cleanup-branch "$REPORT_BRANCH"
 ```
 
 For the full merge protocol details, see `kf-merge-protocol/SKILL.md`.
@@ -664,7 +662,6 @@ After merge succeeds:
 
 ```bash
 git checkout "$HOME_BRANCH"
-git reset --hard "$PRIMARY_BRANCH"
 ```
 
 Report the file path to the user and confirm the merge.

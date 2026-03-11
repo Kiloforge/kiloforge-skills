@@ -234,13 +234,13 @@ done
 
 ```bash
 git worktree list
-git branch --list 'feature/*' 'bug/*' 'chore/*' 'refactor/*'
+git branch --list 'kf/*'
 .agent/kf/bin/kf-merge-lock status 2>/dev/null
 ```
 
 | Check | Severity | Description |
 |-------|----------|-------------|
-| 5.1 Branch-track match | MEDIUM | Implementation branches (`feature/*`, etc.) match active track IDs |
+| 5.1 Branch-track match | MEDIUM | Implementation branches (`kf/*`) match active track IDs |
 | 5.2 Orphaned branches | LOW | No implementation branches for completed/non-existent tracks |
 | 5.3 Merge lock | HIGH | Merge lock is not stale (PID alive for mkdir, TTL valid for HTTP) |
 | 5.4 Primary branch exists | CRITICAL | The configured primary branch exists as a git branch |
@@ -378,7 +378,7 @@ Total                         34    30     3     1
 Critical Findings:
   [FAIL] 3.2 deps.yaml references completed track 'foo_123Z' — PRUNED
   [WARN] 1.5 tracks.yaml not alphabetically sorted — FIXED
-  [WARN] 5.2 Orphaned branch 'feature/old_track' — suggest deletion
+  [WARN] 5.2 Orphaned branch 'kf/feature/old_track' — suggest deletion
   [WARN] 8.1 deps.yaml references non-active track — PRUNED
 
 Repairs Applied: 2

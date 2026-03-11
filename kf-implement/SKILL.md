@@ -32,13 +32,7 @@ Execute tasks from a track's implementation plan, following the workflow rules d
    PRIMARY_BRANCH=$(.agent/kf/bin/kf-primary-branch)
    ```
 
-2. **Sync with primary branch** — your working tree may be stale:
-   ```bash
-   git reset --hard ${PRIMARY_BRANCH}
-   ```
-   This ensures you see the latest tracks, dependencies, and project state. Without this, `kf-track get` and `kf-track list` may report tracks as "not found" even if they exist on the primary branch.
-
-2. Verify Kiloforge is initialized:
+2. Verify Kiloforge is initialized (read from primary branch using `--ref ${PRIMARY_BRANCH}`):
    - Check `.agent/kf/product.yaml` exists
    - Check `.agent/kf/workflow.yaml` exists
    - Check `.agent/kf/tracks.yaml` exists

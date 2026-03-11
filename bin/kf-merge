@@ -19,7 +19,7 @@
 #   --reapply CMD         Command to re-apply track state changes after conflict
 #                         resolution (e.g., "kf-track update X --status completed")
 #   --cleanup-branch NAME Delete this branch after merge (implementation branch)
-#   --no-reset            Don't reset current branch to primary after merge
+#   (reset --hard is never used — home branches are left untouched)
 #
 # EXIT CODES:
 #   0  Merge succeeded
@@ -58,7 +58,6 @@ VERIFY_CMD=""
 CONFLICT_STRATEGY="theirs"
 REAPPLY_CMD=""
 CLEANUP_BRANCH=""
-DO_RESET=true
 HEARTBEAT_PID=""
 LOCK_ACQUIRED=false
 KF_BIN="$(cd "$(dirname "$0")" && pwd)"
@@ -72,7 +71,6 @@ while [ $# -gt 0 ]; do
     --conflict-strategy) CONFLICT_STRATEGY="$2"; shift 2 ;;
     --reapply)          REAPPLY_CMD="$2"; shift 2 ;;
     --cleanup-branch)   CLEANUP_BRANCH="$2"; shift 2 ;;
-    --no-reset)         DO_RESET=false; shift ;;
     -h|--help)          sed -n '2,/^$/p' "$0" | sed 's/^# \?//'; exit 0 ;;
     *)                  echo "Unknown option: $1" >&2; exit 1 ;;
   esac
@@ -184,9 +182,8 @@ if [ -n "$CLEANUP_BRANCH" ]; then
   git branch -d "$CLEANUP_BRANCH" 2>/dev/null || true
 fi
 
-# Reset to primary branch (keeps worktree in sync)
-if [ "$DO_RESET" = true ]; then
-  git reset --hard "$PRIMARY_BRANCH" 2>/dev/null || true
-fi
+# Note: We do NOT reset the home branch to primary. The home branch
+# may contain the user's work. Implementation branches are always
+# created from the primary branch directly.
 
 echo "Done."

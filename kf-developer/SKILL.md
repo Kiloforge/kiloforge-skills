@@ -67,29 +67,13 @@ echo "Primary branch: $PRIMARY_BRANCH"
 
 Record `PRIMARY_BRANCH` for all subsequent operations. If `config.yaml` doesn't exist or has no `primary_branch`, default to `main`.
 
-**IMPORTANT: Your home branch is almost always stale.** Other architects and developers merge to the primary branch continuously. Before doing ANY validation or track lookups, you MUST sync first:
+**IMPORTANT: Your home branch is almost always stale.** Other architects and developers merge to the primary branch continuously. Do NOT use `git reset --hard` to sync — this destroys the home branch state unexpectedly.
 
-```bash
-git reset --hard ${PRIMARY_BRANCH}
-```
-
-This ensures your local working tree has the latest tracks.yaml, deps.yaml, and track directories. Without this, `kf-track get`, `kf-track list`, and `kf-track deps check` will operate on stale data and may report tracks as "not found" even though they exist on the primary branch.
-
-**All track state reads should come from the primary branch.** Either sync first (preferred) or use `--ref ${PRIMARY_BRANCH}` on commands that support it.
+Instead, **always read track state from the primary branch** using `--ref ${PRIMARY_BRANCH}` on CLI commands or `git show ${PRIMARY_BRANCH}:<path>` for file reads. Implementation branches are always created from `${PRIMARY_BRANCH}` directly.
 
 ---
 
 ## Phase 1: Validation
-
-### Step 0b — Sync with primary branch
-
-Before any validation, sync the working tree to the latest primary branch state:
-
-```bash
-git reset --hard ${PRIMARY_BRANCH}
-```
-
-This is mandatory — skip this and you risk operating on stale track data.
 
 ### Step 1 — Parse track ID
 
@@ -144,14 +128,14 @@ If missing: Display error and suggest `/kf-setup`. **HALT.**
 2. **Check if another worker has claimed it:**
    ```bash
    git worktree list
-   git branch --list 'feature/*' 'bug/*' 'chore/*' 'refactor/*'
+   git branch --list 'kf/*'
    ```
 
    Look for a branch matching `*/{trackId}`. If found:
    ```
    ERROR: Track already claimed — {trackId}
 
-   Branch {type}/{trackId} already exists, indicating another worker is implementing this track.
+   Branch kf/{type}/{trackId} already exists, indicating another worker is implementing this track.
 
    Worktree: {worktree path if identifiable}
    Branch:   {branch name}
@@ -193,7 +177,7 @@ Tasks:    {total tasks from track.yaml plan}
 Phases:   {total phases}
 
 Beginning implementation:
-1. Create branch {type}/{trackId} from ${PRIMARY_BRANCH}
+1. Create branch kf/{type}/{trackId} from ${PRIMARY_BRANCH}
 2. Implement all tasks following the plan
 3. Verify and prepare for merge
 ================================================================================
@@ -210,28 +194,22 @@ ACTIVE ROLE: kf-developer — track {trackId} — skill at ~/.claude/skills/kf-d
 
 ## Phase 2: Setup
 
-### Step 5 — Sync home branch and create implementation branch
+### Step 5 — Create implementation branch
 
-The `worker-*` home branch is a dead/marker branch. Its only purpose is recording the point at which this worker last synced with the primary branch. Sync it now so the marker reflects where we're starting from, then branch off:
+Create an implementation branch from the primary branch:
 
 ```bash
-# Sync home branch to primary branch (updates the marker)
-git reset --hard ${PRIMARY_BRANCH}
-
-# Create implementation branch from primary branch
-git checkout -b {type}/{trackId} ${PRIMARY_BRANCH}
+git checkout -b kf/{type}/{trackId} ${PRIMARY_BRANCH}
 ```
 
-Branch naming: `{type}/{trackId}` where type comes from metadata (e.g., `feature/auth_20250115100000Z`).
-
-> **Note:** The implementation branch is created from `${PRIMARY_BRANCH}`, not from the home branch. The `git reset --hard` just before serves as a timestamp marker — it records when this worker last synced, which can be useful for diagnosing staleness.
+Branch naming: `kf/{type}/{trackId}` where type comes from metadata (e.g., `kf/feature/auth_20250115100000Z`). The implementation branch is always created from `${PRIMARY_BRANCH}` to ensure it starts with the latest code.
 
 #### Step 5b — Check for stash branches
 
 After creating the implementation branch, check if a previous worker stashed work for this track:
 
 ```bash
-STASH=$(git branch --list "stash/{trackId}/*" | head -1 | sed 's/^[* ]*//')
+STASH=$(git branch --list "kf/stash/{trackId}/*" | head -1 | sed 's/^[* ]*//')
 if [ -n "$STASH" ]; then
   git merge "$STASH" --no-edit
   git branch -D "$STASH"
@@ -333,7 +311,7 @@ Resolve the git remote and PR platform:
 ### Step 10r.2 — Push branch and create PR
 
 ```bash
-git push ${REMOTE_NAME} {type}/{trackId}
+git push ${REMOTE_NAME} kf/{type}/{trackId}
 ```
 
 Create PR with session ID embedded:
@@ -342,7 +320,7 @@ Create PR with session ID embedded:
 ```bash
 gh pr create \
   --base ${PRIMARY_BRANCH} \
-  --head {type}/{trackId} \
+  --head kf/{type}/{trackId} \
   --title "{type}: {track title} ({trackId})" \
   --body "$(cat <<'EOF'
 ## Track
@@ -369,7 +347,7 @@ EOF
 ```bash
 tea pr create \
   --base ${PRIMARY_BRANCH} \
-  --head {type}/{trackId} \
+  --head kf/{type}/{trackId} \
   --title "{type}: {track title} ({trackId})" \
   --description "..." # same body as above
 ```
@@ -383,7 +361,7 @@ Record the PR number/URL.
                     PR CREATED — WAITING FOR REVIEW
 ================================================================================
 Track:      {trackId} - {title}
-Branch:     {type}/{trackId}
+Branch:     kf/{type}/{trackId}
 PR:         {pr-url}
 Session:    {session-id}
 
@@ -426,7 +404,7 @@ When unblocked, determine the review outcome:
    - Commit fixes
    - Push updates:
      ```bash
-     git push ${REMOTE_NAME} {type}/{trackId}
+     git push ${REMOTE_NAME} kf/{type}/{trackId}
      ```
    - Reply to PR comments explaining fixes (via `gh pr comment` or `tea pr comment`)
    - Return to Step 10r.3 (wait for next review round)
@@ -465,7 +443,7 @@ If `--disable-auto-merge` **was** provided (and `--with-review` was not used or 
                     TRACK COMPLETE — READY TO MERGE
 ================================================================================
 Track:      {trackId} - {title}
-Branch:     {type}/{trackId}
+Branch:     kf/{type}/{trackId}
 Tasks:      {completed}/{total}
 
 Ready to merge. Say "merge" to begin the lock -> rebase -> verify -> merge sequence.
@@ -506,7 +484,7 @@ VERIFY_CMD="<commands from workflow.yaml>"
   --timeout 300 \
   --verify "$VERIFY_CMD" \
   --reapply ".agent/kf/bin/kf-track update {trackId} --status completed" \
-  --cleanup-branch {type}/{trackId}
+  --cleanup-branch kf/{type}/{trackId}
 ```
 
 - `--timeout 300` — wait up to 5 minutes for the lock (auto-merge mode)
@@ -525,16 +503,14 @@ After `kf-merge` succeeds:
 git checkout {worker-home-branch}
 
 # Clean up any stash branches for this track
-for b in $(git branch --list "stash/{trackId}/*" | sed 's/^[* ]*//'); do
+for b in $(git branch --list "kf/stash/{trackId}/*" | sed 's/^[* ]*//'); do
   git branch -D "$b"
 done
 
 # If --with-review was used: clean up remote branch and close PR
-# GitHub: gh pr close {pr-number} && git push ${REMOTE_NAME} --delete {type}/{trackId}
-# Gitea: tea pr close {pr-number} && git push ${REMOTE_NAME} --delete {type}/{trackId}
+# GitHub: gh pr close {pr-number} && git push ${REMOTE_NAME} --delete kf/{type}/{trackId}
+# Gitea: tea pr close {pr-number} && git push ${REMOTE_NAME} --delete kf/{type}/{trackId}
 
-# Sync home branch to primary branch
-git reset --hard ${PRIMARY_BRANCH}
 ```
 
 Report:
@@ -545,7 +521,7 @@ Report:
 ================================================================================
 Track:       {trackId} - {title}
 Merged into: ${PRIMARY_BRANCH}
-Branch:      {type}/{trackId} (deleted)
+Branch:      kf/{type}/{trackId} (deleted)
 Home branch: {worker-home-branch} (synced to ${PRIMARY_BRANCH})
 
 Developer is ready for next track.

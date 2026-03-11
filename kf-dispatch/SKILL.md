@@ -52,7 +52,7 @@ git -C <worktree-path> branch --show-current
 | Branch pattern | Classification | Meaning |
 |---|---|---|
 | `developer-*` (home branch) | **IDLE** | On home branch, not implementing a track |
-| `feature/*`, `bug/*`, `chore/*`, `refactor/*` | **ACTIVE** | Currently implementing a track |
+| `kf/*` (e.g., `kf/feature/*`, `kf/bug/*`) | **ACTIVE** | Currently implementing a track |
 | Any other branch | **UNKNOWN** | Unusual state, flag for review |
 
 Record the list of idle and active workers.
@@ -131,16 +131,16 @@ Tracks:  {available_count} available, {blocked_count} blocked, {claimed_count} i
 
 --- ACTIVE WORKERS -----------------------------------------------------------
 
-  developer-1  →  ACTIVE on feature/some-track (3/8 tasks done)
-  developer-3  →  ACTIVE on chore/other-track (1/4 tasks done)
+  developer-1  →  ACTIVE on kf/feature/some-track (3/8 tasks done)
+  developer-3  →  ACTIVE on kf/chore/other-track (1/4 tasks done)
 
 --- DISPATCH PLAN -------------------------------------------------------------
 
-  developer-2  →  feature/high-priority-track
+  developer-2  →  kf/feature/high-priority-track
                    Priority: unblocks 3 tracks, no conflicts
                    Command: claude --worktree developer-2 -p "/kf-developer high-priority-track_20260310Z"
 
-  developer-4  →  chore/cleanup-track
+  developer-4  →  kf/chore/cleanup-track
                    Priority: independent, small (2 tasks)
                    Command: claude --worktree developer-4 -p "/kf-developer cleanup-track_20260310Z"
 
@@ -150,12 +150,12 @@ Tracks:  {available_count} available, {blocked_count} blocked, {claimed_count} i
 
 --- DEFERRED (conflict risk) --------------------------------------------------
 
-  bug/risky-track — conflicts with feature/high-priority-track (assigned above)
+  kf/bug/risky-track — conflicts with kf/feature/high-priority-track (assigned above)
     Assign after developer-2 completes, or to a different worker later.
 
 --- BLOCKED -------------------------------------------------------------------
 
-  feature/dependent-track — waiting on: high-priority-track (AVAILABLE, assigned above)
+  kf/feature/dependent-track — waiting on: high-priority-track (AVAILABLE, assigned above)
 
 ================================================================================
 ```
@@ -219,8 +219,8 @@ If there are **no idle workers**:
 
 Workers: 0 idle, {active_count} active
 
-  developer-1  →  feature/track-a (5/8 tasks)
-  developer-2  →  chore/track-b (2/4 tasks)
+  developer-1  →  kf/feature/track-a (5/8 tasks)
+  developer-2  →  kf/chore/track-b (2/4 tasks)
   ...
 
 All workers are actively implementing tracks. No dispatch needed.

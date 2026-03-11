@@ -433,6 +433,7 @@ This installs the following tools:
 
 | Tool | Type | Description |
 |------|------|-------------|
+| `kf-preflight` | sh | Pre-flight check: verifies metadata files and tools exist |
 | `kf-primary-branch` | sh | Resolves the primary branch from config.yaml |
 | `kf-track` | bash | Track registry management (add, list, update, deps, conflicts) |
 | `kf-track-content` | python3 | Track content management (init, show, spec, plan, task progress) |
@@ -488,6 +489,7 @@ When all files are created:
    - .agent/kf/tracks.yaml
    - .agent/kf/tracks/deps.yaml
    - .agent/kf/tracks/conflicts.yaml
+   - .agent/kf/bin/kf-preflight
    - .agent/kf/bin/kf-primary-branch
    - .agent/kf/bin/kf-track
    - .agent/kf/bin/kf-track-content

@@ -29,7 +29,7 @@ Used by **kf-architect** and **kf-report** — changes are limited to `.agent/kf
 .agent/kf/bin/kf-merge --holder architect-1 --timeout 0
 ```
 
-**Steps:** lock → rebase → resolve state conflicts → merge → release → reset
+**Steps:** lock → rebase → resolve state conflicts → merge → release
 
 ### 2. Implementation Merge (with verification)
 
@@ -48,7 +48,7 @@ make test && make build && make lint
   --cleanup-branch feature/{trackId}
 ```
 
-**Steps:** validate → lock → rebase → resolve conflicts → validate → merge → release → cleanup
+**Steps:** validate → lock → rebase → resolve conflicts → validate → merge → release
 
 ## Protocol Steps (Detail)
 
@@ -137,7 +137,8 @@ Only fast-forward merges are allowed. If the merge cannot fast-forward, somethin
 1. Stop heartbeat
 2. Release lock via `kf-merge-lock release`
 3. Delete implementation branch if applicable
-4. Reset working branch to primary branch
+
+**Note:** The home branch is never reset to the primary branch. Home branches may contain user work. Implementation branches are always created from the primary branch directly.
 
 ## `kf-merge` Options Reference
 
@@ -149,7 +150,6 @@ Only fast-forward merges are allowed. If the merge cannot fast-forward, somethin
 | `--conflict-strategy` | theirs | `theirs` or `ours` for track state conflicts |
 | `--reapply CMD` | (none) | Command to re-apply track state after conflict resolution |
 | `--cleanup-branch NAME` | (none) | Branch to delete after successful merge |
-| `--no-reset` | (reset) | Skip resetting current branch to primary after merge |
 
 ## Exit Codes
 

@@ -80,19 +80,11 @@ git show ${PRIMARY_BRANCH}:.agent/kf/tracks.yaml > /dev/null 2>&1
 
 If missing: Display error and suggest running `/kf-setup` first. **HALT.**
 
-### Step 2 — Sync with primary branch
+### Step 2 — Load project context
 
-Before doing any work, ensure the local branch is up to date with the primary branch:
+Read all project context from the primary branch using `git show ${PRIMARY_BRANCH}:<path>` or `--ref ${PRIMARY_BRANCH}` on CLI commands. Do NOT use `git reset --hard` — this destroys the home branch state.
 
-```bash
-git reset --hard ${PRIMARY_BRANCH}
-```
-
-This ensures you have the latest track state, including tracks that other generators or developers may have merged.
-
-### Step 3 — Load project context
-
-Read all of these (from working tree, now synced with the primary branch):
+Read all of these (from the primary branch):
 
 1. **Product context:** `.agent/kf/product.yaml`
 2. **Product guidelines:** `.agent/kf/product-guidelines.yaml` (if exists)
@@ -103,7 +95,7 @@ Read all of these (from working tree, now synced with the primary branch):
 7. **Dependency graph:** `.agent/kf/tracks/deps.yaml` (adjacency list of track dependencies)
 8. **Code style guides:** `.agent/kf/code_styleguides/` (all files, if present)
 
-### Step 4 — Parse the user prompt
+### Step 3 — Parse the user prompt
 
 Extract from the user's argument/prompt:
 - The desired outcome or feature
