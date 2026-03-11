@@ -71,24 +71,17 @@ This outputs all **data** sections:
 - **Conflict Risk** — active conflict pairs from `conflicts.yaml`, showing risk level and notes (only appears when active pairs exist)
 - **Blocked** — pending tracks with unmet dependencies and their current statuses
 
-### Step 4 — Show dispatch recommendations
-
-If developer worktrees exist, run the dispatch script to show prioritized assignments for idle workers:
-
-```bash
-.agent/kf/bin/kf-dispatch.py --ref ${PRIMARY_BRANCH}
-```
-
-This automatically scans worktrees, computes priority scores (unblock factor, conflict avoidance, type diversity), and matches idle workers to available tracks. It limits recommendations to the number of idle worktrees.
-
-If no worktrees exist, skip this step.
-
-### Step 5 — Assess and recommend
+### Step 4 — Assess and recommend
 
 The CLI outputs are factual. After presenting them, add brief **assessment**:
 
 1. **Bottleneck analysis** — If many tracks are blocked on the same dependency, call it out
-2. **Recommendations** — Based on the state:
+2. **Dispatch recommendations** — If developer worktrees exist, run dispatch to get prioritized assignments for idle workers:
+   ```bash
+   .agent/kf/bin/kf-dispatch.py --ref ${PRIMARY_BRANCH}
+   ```
+   This computes priority scores (unblock factor, conflict avoidance, type diversity) and matches idle workers to available tracks. Include the dispatch output as concrete next-action recommendations. If no worktrees exist, skip dispatch.
+3. **General recommendations** — Based on the state:
    - No pending tracks → suggest `/kf-architect` to create new work
    - Many completed tracks not archived → suggest `/kf-bulk-archive`
    - In-progress tracks with low progress → note they may be stalled
