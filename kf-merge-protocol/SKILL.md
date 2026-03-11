@@ -77,7 +77,7 @@ Find the worktree that has the primary branch checked out:
 git worktree list | grep "[${PRIMARY_BRANCH}]"
 ```
 
-### Step 3 — Acquire merge lock
+### Step 3 — Acquire branch lock
 
 Uses `kf-merge-lock` which supports dual-mode acquisition:
 
@@ -184,7 +184,7 @@ Only fast-forward merges are allowed. If the merge cannot fast-forward, somethin
 
 ## Safety Rules
 
-1. **ONE merge at a time** — enforced via merge lock
+1. **ONE merge at a time** — enforced via branch lock
 2. **Fast-forward only** — no merge commits, no squashing
 3. **NEVER force-remove another worker's lock** — report stale locks to the user
 4. **Release lock on ANY failure** — the `kf-merge` script handles this via trap

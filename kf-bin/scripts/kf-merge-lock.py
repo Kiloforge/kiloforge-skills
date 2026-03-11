@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-# kf-merge-lock — Cross-worktree merge lock helper
+# kf-merge-lock — Cross-worktree branch lock helper
 #
-# Encapsulates the dual-mode (HTTP/mkdir) merge lock protocol.
-# Used by kf-developer and kf-architect skills to coordinate merges.
+# Provides a lock on the primary branch to coordinate merges across worktrees.
+# Tries HTTP (orchestrator) first, falls back to mkdir (filesystem) seamlessly.
+# A single `acquire` call handles mode detection, fallback, and waiting.
 #
 # USAGE:
 #   kf-merge-lock acquire [--holder NAME] [--timeout SECONDS] [--ttl SECONDS] [--pid PID]
@@ -52,6 +53,11 @@ DEFAULT_HOLDER = os.environ.get("KF_LOCK_HOLDER", os.path.basename(os.getcwd()))
 DEFAULT_TTL = 120
 DEFAULT_TIMEOUT = 0
 STALE_THRESHOLD = 240  # 2x default TTL — auto-clean mkdir locks older than this
+
+# Acquire return codes (internal)
+ACQUIRED = 0
+HELD = 1       # Lock held by another worker
+CONN_ERR = 2   # Connection error (HTTP unavailable)
 
 
 # --- Mode detection ---
@@ -103,19 +109,17 @@ def _http_json_request(method: str, path: str, data: dict | None = None,
         return 0, ""
 
 
-def http_acquire(holder: str, ttl: int, timeout: int) -> int:
-    max_time = timeout + 10 if timeout > 0 else 10
+def _http_try_acquire(holder: str, ttl: int) -> tuple[int, str]:
+    """Attempt HTTP acquire (non-blocking). Returns (ACQUIRED|HELD|CONN_ERR, holder_info)."""
     status, body = _http_json_request(
         "POST", "/api/locks/merge/acquire",
-        {"holder": holder, "ttl_seconds": ttl, "timeout_seconds": timeout},
-        timeout=max_time,
+        {"holder": holder, "ttl_seconds": ttl, "timeout_seconds": 0},
+        timeout=10,
     )
     if status == 0:
-        print(f"ERROR: Failed to connect to orchestrator at {ORCH_URL}", file=sys.stderr)
-        return 1
+        return CONN_ERR, ""
     if status == 200:
-        print("Merge lock acquired (HTTP mode)")
-        return 0
+        return ACQUIRED, ""
     # Lock held by someone else
     current_holder = "unknown"
     try:
@@ -123,13 +127,12 @@ def http_acquire(holder: str, ttl: int, timeout: int) -> int:
         current_holder = parsed.get("current_holder", "unknown")
     except Exception:
         pass
-    print(f"MERGE LOCK HELD by {current_holder}", file=sys.stderr)
-    return 1
+    return HELD, current_holder
 
 
 def http_release(holder: str) -> int:
     _http_json_request("DELETE", "/api/locks/merge", {"holder": holder})
-    print("Lock released (HTTP mode)")
+    print("Branch lock released (HTTP)")
     return 0
 
 
@@ -161,7 +164,7 @@ def http_status() -> int:
 
     print("Mode:   HTTP")
     if count == 0:
-        print("Status: No active locks")
+        print("Status: No active lock")
         return 0
 
     print(f"Locks:  {count} active")
@@ -172,7 +175,7 @@ def http_status() -> int:
             holder = lock.get("holder", "")
             expires = lock.get("expires_at", "")
             if holder:
-                print("  Scope:   merge")
+                print("  Scope:   branch")
                 print(f"  Holder:  {holder}")
                 print(f"  Expires: {expires}")
                 break
@@ -273,52 +276,29 @@ def _try_mkdir(lock_dir: Path) -> bool:
         return False
 
 
-def mkdir_acquire(holder: str, timeout: int, pid: int) -> int:
-    lock_dir = get_lock_dir()
-
+def _mkdir_try_acquire(lock_dir: Path, holder: str, pid: int) -> tuple[int, str]:
+    """Attempt mkdir acquire once. Returns (ACQUIRED|HELD, holder_info)."""
     if _try_mkdir(lock_dir):
         _write_lock_info(lock_dir, pid, holder)
-        print("Merge lock acquired (mkdir mode)")
-        return 0
+        return ACQUIRED, ""
 
     # Lock exists — check for stale lock
     if _mkdir_check_stale(lock_dir):
         if _try_mkdir(lock_dir):
             _write_lock_info(lock_dir, pid, holder)
-            print("Merge lock acquired (mkdir mode, stale lock cleaned)")
-            return 0
+            return ACQUIRED, ""
 
-    # Lock is held — poll if timeout > 0
-    if timeout == 0:
-        info = _parse_lock_info(lock_dir)
-        info_str = f"{info[0]} {info[1]} {info[2]}" if info else "unknown"
-        print(f"MERGE LOCK HELD — {info_str}", file=sys.stderr)
-        return 1
-
-    # Polling loop
-    elapsed = 0
-    interval = 10
-    while elapsed < timeout:
-        print(f"MERGE LOCK HELD — waiting... ({elapsed}s/{timeout}s)", file=sys.stderr)
-        time.sleep(interval)
-        elapsed += interval
-
-        _mkdir_check_stale(lock_dir)
-
-        if _try_mkdir(lock_dir):
-            _write_lock_info(lock_dir, pid, holder)
-            print(f"Merge lock acquired (mkdir mode) after {elapsed}s")
-            return 0
-
-    print(f"MERGE LOCK TIMEOUT — could not acquire after {timeout}s", file=sys.stderr)
-    return 1
+    # Lock is held
+    info = _parse_lock_info(lock_dir)
+    info_str = f"{info[2]}" if info else "unknown"
+    return HELD, info_str
 
 
 def mkdir_release(holder: str) -> int:
     lock_dir = get_lock_dir()
 
     if not lock_dir.is_dir():
-        print("Lock released (mkdir mode, already unlocked)")
+        print("Branch lock released (mkdir, already unlocked)")
         return 0
 
     # Validate holder before releasing
@@ -333,7 +313,7 @@ def mkdir_release(holder: str) -> int:
             return 1
 
     shutil.rmtree(lock_dir, ignore_errors=True)
-    print("Lock released (mkdir mode)")
+    print("Branch lock released (mkdir)")
     return 0
 
 
@@ -385,6 +365,65 @@ def mkdir_status() -> int:
     return 0
 
 
+# --- Unified acquire ---
+
+def _try_acquire_once(holder: str, ttl: int, pid: int) -> tuple[int, str, str]:
+    """Single acquire attempt: HTTP first, mkdir fallback.
+
+    Returns (ACQUIRED|HELD|CONN_ERR, holder_info, mode).
+    """
+    lock_dir = get_lock_dir()
+
+    # Try HTTP first
+    if is_orch_running():
+        result, held_by = _http_try_acquire(holder, ttl)
+        if result == ACQUIRED:
+            return ACQUIRED, "", "HTTP"
+        if result == HELD:
+            return HELD, held_by, "HTTP"
+        # CONN_ERR — fall through to mkdir
+
+    # mkdir fallback
+    result, held_by = _mkdir_try_acquire(lock_dir, holder, pid)
+    if result == ACQUIRED:
+        return ACQUIRED, "", "mkdir"
+    return HELD, held_by, "mkdir"
+
+
+def unified_acquire(holder: str, ttl: int, timeout: int, pid: int) -> int:
+    """Try HTTP first, fall back to mkdir. Poll at 1s intervals if held.
+
+    Returns 0 on success, 1 on held/timeout.
+    """
+    result, held_by, mode = _try_acquire_once(holder, ttl, pid)
+    if result == ACQUIRED:
+        print(f"Branch lock acquired ({mode})")
+        return 0
+
+    # Lock held — fail immediately if no timeout
+    if timeout == 0:
+        print(f"BRANCH LOCK HELD by {held_by}", file=sys.stderr)
+        return 1
+
+    # Poll at 1s intervals
+    elapsed = 0
+    interval = 1
+    log_interval = 10  # only log every 10s to avoid spam
+    while elapsed < timeout:
+        if elapsed % log_interval == 0:
+            print(f"Branch lock held by {held_by} — waiting... ({elapsed}s/{timeout}s)", file=sys.stderr)
+        time.sleep(interval)
+        elapsed += interval
+
+        result, held_by, mode = _try_acquire_once(holder, ttl, pid)
+        if result == ACQUIRED:
+            print(f"Branch lock acquired ({mode}) after {elapsed}s")
+            return 0
+
+    print(f"BRANCH LOCK TIMEOUT — could not acquire after {timeout}s", file=sys.stderr)
+    return 1
+
+
 # --- Main command dispatch ---
 
 def cmd_acquire(args: list[str]) -> int:
@@ -407,10 +446,7 @@ def cmd_acquire(args: list[str]) -> int:
             print(f"Unknown option: {args[i]}", file=sys.stderr)
             return 1
 
-    if is_orch_running():
-        return http_acquire(holder, ttl, timeout)
-    else:
-        return mkdir_acquire(holder, timeout, pid)
+    return unified_acquire(holder, ttl, timeout, pid)
 
 
 def cmd_release(args: list[str]) -> int:
@@ -452,7 +488,7 @@ def cmd_heartbeat(args: list[str]) -> int:
 
 def cmd_status() -> int:
     print("===============================================")
-    print("           MERGE LOCK STATUS")
+    print("          BRANCH LOCK STATUS")
     print("===============================================")
     print()
 
@@ -468,7 +504,11 @@ def cmd_status() -> int:
 
 def cmd_help() -> int:
     print("""\
-kf-merge-lock — Cross-worktree merge lock helper
+kf-merge-lock — Cross-worktree branch lock
+
+Coordinates merges to the primary branch across worktrees.
+Tries HTTP (orchestrator) first, falls back to mkdir (filesystem).
+A single acquire call handles mode detection, fallback, and waiting.
 
 USAGE:
   kf-merge-lock acquire [--holder NAME] [--timeout SECONDS] [--ttl SECONDS] [--pid PID]
@@ -479,16 +519,19 @@ USAGE:
 
 OPTIONS:
   --holder NAME     Lock holder identity (default: basename of $PWD)
-  --timeout SECONDS Acquire timeout: 0=non-blocking, >0=poll/wait (default: 0)
+  --timeout SECONDS Acquire timeout: 0=fail if held, >0=wait (default: 0)
   --ttl SECONDS     Lock TTL in seconds (default: 120)
   --pid PID         PID to record for stale detection (default: parent PID)
 
-MODES:
-  HTTP   — Preferred when orchestrator is running ($KF_ORCH_URL/health responds)
-           Uses TTL, heartbeat, server-side long-poll.
-  mkdir  — Fallback when orchestrator unavailable.
+MODES (automatic — no user configuration needed):
+  HTTP   — Used when orchestrator is reachable ($KF_ORCH_URL/health responds).
+           Uses TTL, heartbeat, server-side long-poll for waiting.
+  mkdir  — Used when orchestrator is unavailable.
            Uses PID + timestamp for stale detection. Auto-cleans dead-PID locks
            older than 240s.
+
+  Acquire tries HTTP first. If the orchestrator is unreachable (or becomes
+  unreachable during a wait), it falls back to mkdir automatically.
 
 ENVIRONMENT:
   KF_ORCH_URL      Orchestrator URL (default: http://localhost:39517)

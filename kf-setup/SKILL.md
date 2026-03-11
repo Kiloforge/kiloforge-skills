@@ -501,7 +501,7 @@ This installs the following tools:
 | `kf-track` | python3 | Track registry management (add, list, update, deps, conflicts) |
 | `kf-track-content` | python3 | Track content management (init, show, spec, plan, task progress) |
 | `kf-merge` | python3 | Unified merge protocol (lock, rebase, verify, merge, release) |
-| `kf-merge-lock` | python3 | Cross-worktree merge lock (acquire, release, heartbeat) |
+| `kf-merge-lock` | python3 | Cross-worktree branch lock (acquire, release, heartbeat) |
 | `kf-claim` | python3 | Per-worktree track claim lock (acquire, release, list, find) |
 | `kf-dispatch` | python3 | Compute dispatch assignments for idle developer worktrees |
 | `kf-worktree-env` | python3 | Detect git worktree context and export env vars |

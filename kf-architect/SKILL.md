@@ -515,9 +515,9 @@ The architect is responsible for maintaining track state correctness. This means
 8. **ALWAYS read state from the primary branch** — use `git show ${PRIMARY_BRANCH}:<path>` for track statuses
 9. **NEVER overwrite existing track states** — the primary branch's state for existing tracks is authoritative
 10. **NEVER push to remote** — all operations are local only
-11. **ONE merge at a time** — enforce via cross-worktree merge lock (HTTP preferred, mkdir fallback)
+11. **ONE merge at a time** — enforce via cross-worktree branch lock (HTTP preferred, mkdir fallback)
 12. **ALWAYS send heartbeat** — start heartbeat after lock acquire, stop after release
-13. **NEVER force-remove another worker's lock** — if the merge lock is held, HALT and wait for user instructions. Do not `rm -rf` the lock directory or force-release HTTP locks held by others.
+13. **NEVER force-remove another worker's lock** — if the branch lock is held, HALT and wait for user instructions. Do not `rm -rf` the lock directory or force-release HTTP locks held by others.
 14. **ALWAYS update deps.yaml** — every new track must be added to `.agent/kf/tracks/deps.yaml` with its dependency list, even if empty (`[]`). This is the canonical source for dependency ordering.
 
 ## Environment Variables
@@ -526,9 +526,9 @@ The architect is responsible for maintaining track state correctness. This means
 |----------|---------|-------------|
 | `KF_ORCH_URL` | `http://localhost:4001` | Orchestrator URL for HTTP lock API |
 
-## Merge Lock Modes
+## Branch Lock Modes
 
-The merge lock uses dual-mode acquisition:
+The branch lock uses dual-mode acquisition:
 
 1. **HTTP mode** — Preferred when kiloforge orchestrator is running. Uses TTL (120s), heartbeat (every 30s), and server-side long-poll. Crash recovery via automatic TTL expiry.
 2. **mkdir mode** — Fallback when orchestrator is unreachable. Uses `$(git rev-parse --git-common-dir)/merge.lock` directory. No TTL — requires manual cleanup on crashes.

@@ -1,6 +1,6 @@
 ---
 name: kf-repair
-description: Audit Kiloforge system integrity (track registry, dependency graph, conflict pairs, worktree state, merge lock, cross-references) and perform repairs directly or escalate to /kf-architect for larger issues.
+description: Audit Kiloforge system integrity (track registry, dependency graph, conflict pairs, worktree state, branch lock, cross-references) and perform repairs directly or escalate to /kf-architect for larger issues.
 allowed-tools: Read Glob Grep Bash
 metadata:
   argument-hint: "[--full | --registry | --deps | --conflicts | --worktrees] [--fix]"
@@ -9,7 +9,7 @@ metadata:
 
 # Kiloforge System Repair
 
-Systematic health audit and repair agent for Kiloforge project management artifacts. Diagnoses integrity issues across track registry, dependency graph, conflict pairs, worktree/branch state, merge lock, and configuration — then applies safe repairs or escalates structural issues.
+Systematic health audit and repair agent for Kiloforge project management artifacts. Diagnoses integrity issues across track registry, dependency graph, conflict pairs, worktree/branch state, branch lock, and configuration — then applies safe repairs or escalates structural issues.
 
 ## Use this skill when
 
@@ -17,7 +17,7 @@ Systematic health audit and repair agent for Kiloforge project management artifa
 - After interrupted operations (killed agents, failed merges, aborted rebases)
 - Multiple agents report conflicting track states
 - Dependency graph seems wrong (tracks blocked that shouldn't be, or unblocked prematurely)
-- Merge lock appears stuck or stale
+- Branch lock appears stuck or stale
 - Periodic health check before starting a batch of work
 - After bulk operations (archive, compact, mass status changes)
 
@@ -72,7 +72,7 @@ I audit Kiloforge system integrity and repair issues across 8 dimensions:
   3. Dependency Graph   — deps.yaml references, cycles, stale entries
   4. Conflict Pairs     — conflicts.yaml ordering, active references
   5. Worktree State     — branches match tracks, orphaned branches
-  6. Merge Lock         — stale lock detection
+  6. Branch Lock        — stale lock detection
   7. Configuration      — config.yaml validity, primary branch exists
   8. Cross-References   — consistency across all data files
 
@@ -233,7 +233,7 @@ git branch --list 'kf/*'
 |-------|----------|-------------|
 | 5.1 Branch-track match | MEDIUM | Implementation branches (`kf/*`) match active track IDs |
 | 5.2 Orphaned branches | LOW | No implementation branches for completed/non-existent tracks |
-| 5.3 Merge lock | HIGH | Merge lock is not stale (PID alive for mkdir, TTL valid for HTTP) |
+| 5.3 Branch lock | HIGH | Branch lock is not stale (PID alive for mkdir, TTL valid for HTTP) |
 | 5.4 Primary branch exists | CRITICAL | The configured primary branch exists as a git branch |
 | 5.5 Worktree health | MEDIUM | All worktrees in `git worktree list` are valid (paths exist) |
 
@@ -255,7 +255,7 @@ cat .agent/kf/config.yaml
 | 6.2 Primary branch valid | HIGH | `primary_branch` value is a real git branch |
 | 6.3 Required fields | MEDIUM | Has `project_name` and `primary_branch` |
 
-### Dimension 7: Merge Lock State
+### Dimension 7: Branch Lock State
 
 ```bash
 .agent/kf/bin/kf-merge-lock.py status
@@ -294,7 +294,7 @@ These are aggregate checks that combine findings from earlier dimensions. No sep
 | Prune stale deps | 3.1, 3.2, 3.3 | Remove entries from deps.yaml referencing completed/archived/non-existent tracks or self-references |
 | Prune stale conflicts | 4.1, 4.3 | Remove entries from conflicts.yaml referencing completed/archived/non-existent tracks |
 | Re-sort files | 1.5, 3.5 | Sort tracks.yaml and deps.yaml entries alphabetically |
-| Release stale lock | 7.1 | Release merge lock if holding PID is dead |
+| Release stale lock | 7.1 | Release branch lock if holding PID is dead |
 | Prune dead worktrees | 5.5 | Run `git worktree prune` |
 | Sync status | 2.3 | Update track.yaml status to match tracks.yaml |
 | Reorder conflict pairs | 4.2 | Ensure pair keys are alphabetically ordered |
@@ -319,7 +319,7 @@ When `--fix` is NOT passed, list all proposed repairs and ask:
 ```
 The following repairs are available:
   1. [AUTO-FIX] Prune 3 stale entries from deps.yaml
-  2. [AUTO-FIX] Release stale merge lock (PID 12345 is dead)
+  2. [AUTO-FIX] Release stale branch lock (PID 12345 is dead)
   3. [ESCALATE] Track foo_123Z is missing its directory — needs /kf-architect
 
 Apply auto-fixes? (y/n)
@@ -361,7 +361,7 @@ Dimension                  Checks  Pass  Warn  Fail
 4. Conflict Pairs              5     5     0     0
 5. Worktree State              5     4     1     0
 6. Configuration               3     3     0     0
-7. Merge Lock                  2     2     0     0
+7. Branch Lock                 2     2     0     0
 8. Cross-References            4     3     1     0
 ─────────────────────────  ──────  ────  ────  ────
 Total                         34    30     3     1

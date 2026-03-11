@@ -364,7 +364,7 @@ Developer is ready for next track.
 | Track missing spec/plan    | Suggest regeneration, **HALT**                           |
 | Kiloforge not initialized  | Suggest `/kf-setup`, **HALT**                     |
 | Verification failure       | Report details, offer fix/retry/wait                     |
-| Merge lock held            | Report (`kf-merge-lock status`), wait for other worker |
+| Branch lock held           | Report (`kf-merge-lock status`), wait for other worker |
 | Rebase conflict (state files) | Accept theirs, continue rebase, re-apply via CLI     |
 | Rebase conflict (source code) | Release lock, report, **HALT**                       |
 | Post-rebase verify failure | Release lock, report, offer fix/retry/abort              |
@@ -376,7 +376,7 @@ Developer is ready for next track.
 
 | Flag | Effect |
 |------|--------|
-| (none) | Default: implement, auto-merge (poll merge lock if held) |
+| (none) | Default: implement, auto-merge (poll branch lock if held) |
 | `--disable-auto-merge` | Pause after implementation; wait for explicit "merge" command |
 
 ## Environment Variables
@@ -385,9 +385,9 @@ Developer is ready for next track.
 |----------|---------|-------------|
 | `KF_ORCH_URL` | `http://localhost:4001` | Orchestrator URL for HTTP lock API |
 
-## Merge Lock Modes
+## Branch Lock Modes
 
-The merge lock is managed by the shared `.agent/kf/bin/kf-merge-lock.py` helper, which supports dual-mode acquisition:
+The branch lock is managed by the shared `.agent/kf/bin/kf-merge-lock.py` helper, which supports dual-mode acquisition:
 
 1. **HTTP mode** — Preferred when kiloforge orchestrator is running. Uses TTL (120s), heartbeat (every 30s), and server-side long-poll for `--auto-merge`. Crash recovery via automatic TTL expiry.
 2. **mkdir mode** — Fallback when orchestrator is unreachable. Uses `$(git rev-parse --git-common-dir)/merge.lock` directory. PID-based stale detection with auto-cleanup.
@@ -402,9 +402,9 @@ Detection is automatic. Run `kf-merge-lock status` to inspect current lock state
 4. **Auto-merge is the default** — only pause for explicit "merge" command when `--disable-auto-merge` is provided
 5. **ALWAYS verify after rebase** — full verification after rebase, before merge
 6. **ALWAYS use --ff-only** — clean fast-forward merges only
-7. **ONE merge at a time** — enforce via cross-worktree merge lock (HTTP preferred, mkdir fallback)
+7. **ONE merge at a time** — enforce via cross-worktree branch lock (HTTP preferred, mkdir fallback)
 8. **HALT on any failure** — do not continue past errors without user input
 9. **Follow workflow.yaml** — all TDD, commit, and verification rules apply
 10. **Return to home branch** — always checkout back to `worker-*` branch after merge
 11. **ALWAYS send heartbeat** — start heartbeat after lock acquire, stop after release
-13. **NEVER force-remove another worker's lock** — if the merge lock is held, HALT and wait for user instructions. Do not `rm -rf` the lock directory or force-release HTTP locks held by others.
+13. **NEVER force-remove another worker's lock** — if the branch lock is held, HALT and wait for user instructions. Do not `rm -rf` the lock directory or force-release HTTP locks held by others.

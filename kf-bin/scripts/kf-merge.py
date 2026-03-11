@@ -191,14 +191,14 @@ def main():
 
     print(f"Primary worktree: {main_worktree}")
 
-    # ── Step 3: Acquire merge lock ───────────────────────────────────────────
-    print(f"Acquiring merge lock (timeout: {args.timeout}s)...")
+    # ── Step 3: Acquire branch lock ──────────────────────────────────────────
+    print(f"Acquiring branch lock (timeout: {args.timeout}s)...")
     lock_result = run(
         [os.path.join(KF_BIN, "kf-merge-lock.py"), "acquire", "--timeout", str(args.timeout)],
         check=False,
     )
     if lock_result.returncode != 0:
-        print("MERGE LOCK HELD — another worker is merging. Retry later.")
+        print("BRANCH LOCK HELD — another worker is merging. Retry later.")
         sys.exit(2)
 
     lock_acquired = True
