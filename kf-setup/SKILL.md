@@ -453,7 +453,16 @@ These tools are required for track management. Options:
 
 ### 9. .agent/kf/code_styleguides/
 
-Generate selected style guides from `$CLAUDE_PLUGIN_ROOT/templates/code_styleguides/`
+Generate style guide files based on the languages selected in Section 5. For each selected language, create a markdown file (e.g., `typescript.md`, `python.md`, `go.md`) in `.agent/kf/code_styleguides/` containing:
+
+- Naming conventions (files, variables, functions, classes, constants)
+- Code organization patterns
+- Import ordering
+- Error handling conventions
+- Testing conventions
+- Formatting rules (incorporate existing linting/formatting configs if user chose to in Q2)
+
+If the user chose "Skip style guides" in Section 5, skip this step entirely.
 
 ## State Management
 
