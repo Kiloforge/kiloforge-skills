@@ -104,24 +104,28 @@ Initialize or resume Kiloforge project setup. This command creates foundational 
 
    If the user chooses 2: **HALT** — Python 3 is required to continue.
 
-   **Check PyYAML:**
+   **Set up Kiloforge venv and install PyYAML:**
+
+   Kiloforge uses a shared virtual environment at `~/.kf/.venv` so dependencies don't pollute the system Python. All kf scripts use this venv's interpreter.
+
    ```bash
-   python3 -c "import yaml; print('PyYAML', yaml.__version__)" 2>/dev/null
+   # Create venv if it doesn't exist
+   if [ ! -d "$HOME/.kf/.venv" ]; then
+     python3 -m venv "$HOME/.kf/.venv"
+   fi
+
+   # Install PyYAML into the venv
+   "$HOME/.kf/.venv/bin/pip" install pyyaml
    ```
 
-   If PyYAML is missing, ask the user:
-   ```
-   Kiloforge CLI tools require PyYAML (Python YAML parser).
-
-   1. Install now (python3 -m pip install pyyaml)
-   2. Skip — I'll install it myself
-   ```
-
-   If the user chooses 1, run:
+   Verify it succeeded:
    ```bash
-   python3 -m pip install pyyaml
+   "$HOME/.kf/.venv/bin/python" -c "import yaml; print('PyYAML', yaml.__version__)"
    ```
-   Verify it succeeded. If pip is not available, try `python3 -m ensurepip --default-pip` first, then retry.
+
+   If venv creation fails (e.g., `python3-venv` not installed on Debian/Ubuntu), install it first:
+   - **Debian/Ubuntu:** `sudo apt-get install -y python3-venv`
+   - Then retry venv creation.
 
 3. Check if `.agent/kf/` directory already exists in the project root:
    - If `.agent/kf/product.yaml` or `.agent/kf/tracks.yaml` exists: Ask user whether to resume setup or reinitialize
@@ -474,22 +478,32 @@ Install all Kiloforge CLI tools from the skills repo `bin/` directory:
 mkdir -p .agent/kf/bin
 cp "$SKILL_DIR/../kf-bin/scripts/"* .agent/kf/bin/
 chmod +x .agent/kf/bin/*
+
+# Update Python script shebangs to use the Kiloforge venv
+KF_PYTHON="$HOME/.kf/.venv/bin/python"
+for f in .agent/kf/bin/*; do
+  if head -1 "$f" | grep -q python; then
+    sed -i.bak "1s|.*|#!$KF_PYTHON|" "$f" && rm -f "$f.bak"
+  fi
+done
 ```
 
 The `$SKILL_DIR` variable resolves to the directory containing this skill's `SKILL.md`. The `kf-bin/scripts/` directory is one level up (at the skills repo root, inside the `kf-bin` skill).
+
+Python scripts are rewritten to use the Kiloforge venv (`~/.kf/.venv/bin/python`) so they have access to PyYAML without polluting the system Python.
 
 This installs the following tools:
 
 | Tool | Type | Description |
 |------|------|-------------|
-| `kf-preflight` | sh | Pre-flight check: verifies metadata files and tools exist |
-| `kf-primary-branch` | sh | Resolves the primary branch from config.yaml |
-| `kf-track` | bash | Track registry management (add, list, update, deps, conflicts) |
+| `kf-preflight` | python3 | Pre-flight check: verifies metadata files and tools exist |
+| `kf-primary-branch` | python3 | Resolves the primary branch from config.yaml |
+| `kf-track` | python3 | Track registry management (add, list, update, deps, conflicts) |
 | `kf-track-content` | python3 | Track content management (init, show, spec, plan, task progress) |
-| `kf-merge` | sh | Unified merge protocol (lock, rebase, verify, merge, release) |
-| `kf-merge-lock` | bash | Cross-worktree merge lock (acquire, release, heartbeat) |
+| `kf-merge` | python3 | Unified merge protocol (lock, rebase, verify, merge, release) |
+| `kf-merge-lock` | python3 | Cross-worktree merge lock (acquire, release, heartbeat) |
 | `kf-dispatch` | python3 | Compute dispatch assignments for idle developer worktrees |
-| `kf-worktree-env` | bash | Detect git worktree context and export env vars |
+| `kf-worktree-env` | python3 | Detect git worktree context and export env vars |
 
 **If `$SKILL_DIR` is not available** (e.g., running setup outside of the skill framework), prompt the user:
 
