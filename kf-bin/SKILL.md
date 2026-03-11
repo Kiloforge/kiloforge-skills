@@ -16,6 +16,8 @@ Display available CLI tools installed to `.agent/kf/bin/` during project setup.
 
 All CLI tools are Python scripts that require the Kiloforge virtual environment at `.agent/kf/.venv`. This venv is created automatically during `/kf-setup` and contains Python 3 with PyYAML.
 
+**IMPORTANT: NEVER install packages globally.** Do not use `pip install`, `pip3 install`, or `--break-system-packages`. All dependencies are installed into the project-local venv only. If the venv is missing, `kf-preflight.py` will auto-create it.
+
 **Running scripts:** During setup, script shebangs are rewritten to point directly at the venv interpreter (`.agent/kf/.venv/bin/python`), so scripts run with the correct environment automatically:
 
 ```bash
