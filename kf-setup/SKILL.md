@@ -395,30 +395,36 @@ mkdir -p .agent/kf/tracks
 #   - Pairs auto-cleaned when either track completes.
 ```
 
-### 8. .agent/kf/bin/kf-primary-branch
+### 8. .agent/kf/bin/ — CLI tools
 
-Install the shared helper script that resolves the primary branch. Copy from `$SKILL_DIR/../bin/kf-primary-branch`:
+Install all Kiloforge CLI tools from the skills repo `bin/` directory:
 
 ```bash
 mkdir -p .agent/kf/bin
-cp "$SKILL_DIR/../bin/kf-primary-branch" .agent/kf/bin/kf-primary-branch
-chmod +x .agent/kf/bin/kf-primary-branch
+cp "$SKILL_DIR/../bin/"* .agent/kf/bin/
+chmod +x .agent/kf/bin/*
 ```
 
-If the source file is not available, create it directly:
+The `$SKILL_DIR` variable resolves to the directory containing this skill's `SKILL.md`. The `bin/` directory is one level up (at the skills repo root).
 
-```sh
-#!/bin/sh
-# Resolve the Kiloforge primary branch from config.yaml.
-# Tries local file first, then git HEAD, defaults to "main".
-PRIMARY_BRANCH=""
-if [ -f .agent/kf/config.yaml ]; then
-  PRIMARY_BRANCH=$(awk '/^primary_branch:/{print $2}' .agent/kf/config.yaml)
-fi
-if [ -z "$PRIMARY_BRANCH" ]; then
-  PRIMARY_BRANCH=$(git show HEAD:.agent/kf/config.yaml 2>/dev/null | awk '/^primary_branch:/{print $2}')
-fi
-echo "${PRIMARY_BRANCH:-main}"
+This installs the following tools:
+
+| Tool | Type | Description |
+|------|------|-------------|
+| `kf-primary-branch` | sh | Resolves the primary branch from config.yaml |
+| `kf-track` | bash | Track registry management (add, list, update, deps, conflicts) |
+| `kf-track-content` | python3 | Track content management (init, show, spec, plan, task progress) |
+| `kf-merge-lock` | bash | Cross-worktree merge lock (acquire, release, heartbeat) |
+| `kf-worktree-env` | bash | Detect git worktree context and export env vars |
+
+**If `$SKILL_DIR` is not available** (e.g., running setup outside of the skill framework), prompt the user:
+
+```
+The Kiloforge CLI tools could not be found at the expected location.
+
+These tools are required for track management. Options:
+1. Provide the path to the kiloforge-skills repo
+2. Skip for now (tracks cannot be managed until tools are installed)
 ```
 
 ### 9. .agent/kf/code_styleguides/
@@ -460,6 +466,10 @@ When all files are created:
    - .agent/kf/tracks/deps.yaml
    - .agent/kf/tracks/conflicts.yaml
    - .agent/kf/bin/kf-primary-branch
+   - .agent/kf/bin/kf-track
+   - .agent/kf/bin/kf-track-content
+   - .agent/kf/bin/kf-merge-lock
+   - .agent/kf/bin/kf-worktree-env
    - .agent/kf/code_styleguides/[languages]
 
    [If committed: "Artifacts committed to {primary_branch}."]

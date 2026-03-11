@@ -51,8 +51,11 @@ git show ${PRIMARY_BRANCH}:.agent/kf/ > /dev/null 2>&1 && echo "PASS: .agent/kf/
 git show ${PRIMARY_BRANCH}:.agent/kf/tracks/ > /dev/null 2>&1 && echo "PASS: .agent/kf/tracks/ exists" || echo "FAIL: .agent/kf/tracks/ missing"
 
 # CLI tools
-git show ${PRIMARY_BRANCH}:.agent/kf/bin/kf-track > /dev/null 2>&1 && echo "PASS: kf-track CLI exists" || echo "FAIL: kf-track CLI missing"
-git show ${PRIMARY_BRANCH}:.agent/kf/bin/kf-track-content > /dev/null 2>&1 && echo "PASS: kf-track-content CLI exists" || echo "FAIL: kf-track-content CLI missing"
+git show ${PRIMARY_BRANCH}:.agent/kf/bin/kf-primary-branch > /dev/null 2>&1 && echo "PASS: kf-primary-branch exists" || echo "FAIL: kf-primary-branch missing"
+git show ${PRIMARY_BRANCH}:.agent/kf/bin/kf-track > /dev/null 2>&1 && echo "PASS: kf-track exists" || echo "FAIL: kf-track missing"
+git show ${PRIMARY_BRANCH}:.agent/kf/bin/kf-track-content > /dev/null 2>&1 && echo "PASS: kf-track-content exists" || echo "FAIL: kf-track-content missing"
+git show ${PRIMARY_BRANCH}:.agent/kf/bin/kf-merge-lock > /dev/null 2>&1 && echo "PASS: kf-merge-lock exists" || echo "FAIL: kf-merge-lock missing"
+git show ${PRIMARY_BRANCH}:.agent/kf/bin/kf-worktree-env > /dev/null 2>&1 && echo "PASS: kf-worktree-env exists" || echo "FAIL: kf-worktree-env missing"
 ```
 
 If `.agent/kf/` is missing entirely, report the error and suggest `/kf-setup`. **HALT**.
