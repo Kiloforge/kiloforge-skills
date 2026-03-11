@@ -10,10 +10,10 @@ fi
 
 TRACK_ID="$1"
 REASON="${2:-Completed}"
-TRACK_DIR=".agent/conductor/tracks/$TRACK_ID"
-ARCHIVE_DIR=".agent/conductor/tracks/_archive/$TRACK_ID"
+TRACK_DIR=".agent/kf/tracks/$TRACK_ID"
+ARCHIVE_DIR=".agent/kf/tracks/_archive/$TRACK_ID"
 METADATA_FILE="$TRACK_DIR/metadata.json"
-TRACKS_MD=".agent/conductor/tracks.md"
+TRACKS_MD=".agent/kf/tracks.md"
 
 if [ ! -d "$TRACK_DIR" ]; then
   echo "Error: Track directory '$TRACK_DIR' does not exist."
@@ -44,7 +44,7 @@ with open(file_path, 'w') as f:
 "
 
 # 2. Move to archive
-mkdir -p .agent/conductor/tracks/_archive
+mkdir -p .agent/kf/tracks/_archive
 mv "$TRACK_DIR" "$ARCHIVE_DIR"
 
 # 3. Update the master tracks.md registry
@@ -68,7 +68,7 @@ EOF
 fi
 
 # 6. Update the root kiloforge index.md
-KF_INDEX=".agent/conductor/index.md"
+KF_INDEX=".agent/kf/index.md"
 if [ -f "$KF_INDEX" ]; then
   # Remove the track from the Active Tracks list
   sed -i '' "/.*$TRACK_ID.*/d" "$KF_INDEX"

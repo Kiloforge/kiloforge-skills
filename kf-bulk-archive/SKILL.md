@@ -23,19 +23,19 @@ Move all completed track directories into `_archive/` and update `tracks.md` in 
 
 ### Step 1: Identify completed tracks
 
-Read `.agent/conductor/tracks.md` and find all rows marked `[x]` in the active table (above the `## Archived` section).
+Read `.agent/kf/tracks.md` and find all rows marked `[x]` in the active table (above the `## Archived` section).
 
 If none are found, report "No completed tracks to archive" and stop.
 
 ### Step 2: Move directories
 
 ```bash
-mkdir -p .agent/conductor/tracks/_archive/
+mkdir -p .agent/kf/tracks/_archive/
 ```
 
 For each completed track:
 ```bash
-mv .agent/conductor/tracks/{trackId}/ .agent/conductor/tracks/_archive/{trackId}/
+mv .agent/kf/tracks/{trackId}/ .agent/kf/tracks/_archive/{trackId}/
 ```
 
 ### Step 3: Update tracks.md
@@ -59,7 +59,7 @@ Place the new batch entry **above** any previous archive batches so the most rec
 ### Step 4: Commit
 
 ```bash
-git add .agent/conductor/tracks.md .agent/conductor/tracks/
+git add .agent/kf/tracks.md .agent/kf/tracks/
 git commit -m "chore: bulk archive {count} completed tracks"
 ```
 

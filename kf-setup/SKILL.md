@@ -29,15 +29,15 @@ Initialize or resume Kiloforge project setup. This command creates foundational 
 
 ## Pre-flight Checks
 
-1. Check if `.agent/conductor/` directory already exists in the project root:
-   - If `.agent/conductor/product.md` exists: Ask user whether to resume setup or reinitialize
-   - If `.agent/conductor/setup_state.json` exists with incomplete status: Offer to resume from last step
+1. Check if `.agent/kf/` directory already exists in the project root:
+   - If `.agent/kf/product.md` exists: Ask user whether to resume setup or reinitialize
+   - If `.agent/kf/setup_state.json` exists with incomplete status: Offer to resume from last step
 
 2. Detect project type by checking for existing indicators:
    - **Greenfield (new project)**: No .git, no package.json, no requirements.txt, no go.mod, no src/ directory
    - **Brownfield (existing project)**: Any of the above exist
 
-3. Load or create `.agent/conductor/setup_state.json`:
+3. Load or create `.agent/kf/setup_state.json`:
    ```json
    {
      "status": "in_progress",
@@ -299,7 +299,7 @@ Suggested:
 
 After completing Q&A, generate the following files:
 
-### 1. .agent/conductor/index.md
+### 1. .agent/kf/index.md
 
 ```markdown
 # Kiloforge - [Project Name]
@@ -323,7 +323,7 @@ Navigation hub for project context.
 Run `/kf-new-track` to create your first feature track.
 ```
 
-### 2. .agent/conductor/product.md
+### 2. .agent/kf/product.md
 
 Template populated with Q&A answers for:
 
@@ -332,7 +332,7 @@ Template populated with Q&A answers for:
 - Target users
 - Key goals
 
-### 3. .agent/conductor/product-guidelines.md
+### 3. .agent/kf/product-guidelines.md
 
 Template populated with:
 
@@ -340,7 +340,7 @@ Template populated with:
 - Design principles
 - Any additional standards
 
-### 4. .agent/conductor/tech-stack.md
+### 4. .agent/kf/tech-stack.md
 
 Template populated with:
 
@@ -350,7 +350,7 @@ Template populated with:
 - Infrastructure
 - Key dependencies (for brownfield, from package files)
 
-### 5. .agent/conductor/workflow.md
+### 5. .agent/kf/workflow.md
 
 Template populated with:
 
@@ -360,7 +360,7 @@ Template populated with:
 - Verification checkpoint rules
 - Task lifecycle definition
 
-### 6. .agent/conductor/tracks.md
+### 6. .agent/kf/tracks.md
 
 ```markdown
 # Tracks Registry
@@ -371,7 +371,7 @@ Template populated with:
 <!-- Tracks registered by /kf-new-track -->
 ```
 
-### 7. .agent/conductor/code_styleguides/
+### 7. .agent/kf/code_styleguides/
 
 Generate selected style guides from `$CLAUDE_PLUGIN_ROOT/templates/code_styleguides/`
 
@@ -396,13 +396,13 @@ When all files are created:
    Kiloforge setup complete!
 
    Created artifacts:
-   - .agent/conductor/index.md
-   - .agent/conductor/product.md
-   - .agent/conductor/product-guidelines.md
-   - .agent/conductor/tech-stack.md
-   - .agent/conductor/workflow.md
-   - .agent/conductor/tracks.md
-   - .agent/conductor/code_styleguides/[languages]
+   - .agent/kf/index.md
+   - .agent/kf/product.md
+   - .agent/kf/product-guidelines.md
+   - .agent/kf/tech-stack.md
+   - .agent/kf/workflow.md
+   - .agent/kf/tracks.md
+   - .agent/kf/code_styleguides/[languages]
 
    Next steps:
    1. Review generated files and customize as needed

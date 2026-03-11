@@ -29,15 +29,15 @@ Create a new track (feature, bug fix, chore, or refactor) with a detailed specif
 ## Pre-flight Checks
 
 1. Verify Kiloforge is initialized:
-   - Check `.agent/conductor/product.md` exists
-   - Check `.agent/conductor/tech-stack.md` exists
-   - Check `.agent/conductor/workflow.md` exists
+   - Check `.agent/kf/product.md` exists
+   - Check `.agent/kf/tech-stack.md` exists
+   - Check `.agent/kf/workflow.md` exists
    - If missing: Display error and suggest running `/kf-setup` first
 
 2. Load context files:
-   - Read `.agent/conductor/product.md` for product context
-   - Read `.agent/conductor/tech-stack.md` for technical context
-   - Read `.agent/conductor/workflow.md` for TDD/commit preferences
+   - Read `.agent/kf/product.md` for product context
+   - Read `.agent/kf/tech-stack.md` for technical context
+   - Read `.agent/kf/workflow.md` for TDD/commit preferences
 
 ## Track Classification
 
@@ -183,12 +183,12 @@ Generate track ID in format: `{shortname}_{YYYYMMDDHHmmssZ}`
 
 Validate uniqueness:
 
-- Check `.agent/conductor/tracks.md` for existing IDs
+- Check `.agent/kf/tracks.md` for existing IDs
 - If collision, append counter: `user-auth_20250115143022Z_2`
 
 ## Specification Generation
 
-Create `.agent/conductor/tracks/{trackId}/spec.md`:
+Create `.agent/kf/tracks/{trackId}/spec.md`:
 
 ```markdown
 # Specification: {Track Title}
@@ -254,7 +254,7 @@ Is this specification correct?
 
 ## Plan Generation
 
-After spec approval, generate `.agent/conductor/tracks/{trackId}/plan.md`:
+After spec approval, generate `.agent/kf/tracks/{trackId}/plan.md`:
 
 ### Plan Structure
 
@@ -348,7 +348,7 @@ After plan approval:
 1. Create directory structure:
 
    ```
-   .agent/conductor/tracks/{trackId}/
+   .agent/kf/tracks/{trackId}/
    ├── spec.md
    ├── plan.md
    ├── metadata.json
@@ -400,11 +400,11 @@ After plan approval:
    - [Product Context](../../product.md)
    ```
 
-4. Register in `.agent/conductor/tracks.md`:
+4. Register in `.agent/kf/tracks.md`:
    - Add row to tracks table
    - Format: `| [ ] | {trackId} | {title} | {YYYY-MM-DDTHH:MM:SSZ} | {YYYY-MM-DDTHH:MM:SSZ} |`
 
-5. Update `.agent/conductor/index.md`:
+5. Update `.agent/kf/index.md`:
    - Add track to "Active Tracks" section
 
 ## Completion Message
@@ -413,7 +413,7 @@ After plan approval:
 Track created successfully!
 
 Track ID: {trackId}
-Location: .agent/conductor/tracks/{trackId}/
+Location: .agent/kf/tracks/{trackId}/
 
 Files created:
 - spec.md - Requirements specification

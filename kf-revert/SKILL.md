@@ -29,7 +29,7 @@ Revert changes by logical work unit with full git awareness. Supports reverting 
 ## Pre-flight Checks
 
 1. Verify Kiloforge is initialized:
-   - Check `.agent/conductor/tracks.md` exists
+   - Check `.agent/kf/tracks.md` exists
    - If missing: Display error and suggest running `/kf-setup` first
 
 2. Verify git repository:
@@ -139,7 +139,7 @@ Select option:
 2. Find track creation commits:
 
    ```bash
-   git log --oneline -- ".agent/conductor/tracks/{trackId}/"
+   git log --oneline -- ".agent/kf/tracks/{trackId}/"
    ```
 
 3. Collect all matching commit SHAs in chronological order
@@ -164,7 +164,7 @@ Commits to revert (in reverse chronological order):
 Files that will be affected:
   - src/components/Dashboard.tsx (modified)
   - src/hooks/useData.ts (will be deleted - was created in these commits)
-  - .agent/conductor/tracks/dashboard_20250112140000Z/plan.md (modified)
+  - .agent/kf/tracks/dashboard_20250112140000Z/plan.md (modified)
 
 Plan updates:
   - Task 2.2: [x] -> [ ]

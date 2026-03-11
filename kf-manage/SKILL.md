@@ -23,7 +23,7 @@ Manage the complete track lifecycle including archiving, restoring, deleting, re
 
 ## Instructions
 
-- Verify `.agent/conductor/` structure and required files before proceeding.
+- Verify `.agent/kf/` structure and required files before proceeding.
 - Determine the operation mode from arguments or interactive prompts.
 - Confirm destructive actions (delete/cleanup) before applying.
 - Update `tracks.md` and metadata consistently.

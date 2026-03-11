@@ -11,15 +11,15 @@ metadata:
 
 # Check if kiloforge directory exists
 
-ls -la .agent/conductor/
+ls -la .agent/kf/
 
 # Find all track directories
 
-ls -la .agent/conductor/tracks/
+ls -la .agent/kf/tracks/
 
 # Check for required files
 
-ls .agent/conductor/index.md .agent/conductor/product.md .agent/conductor/tech-stack.md .agent/conductor/workflow.md .agent/conductor/tracks.md
+ls .agent/kf/index.md .agent/kf/product.md .agent/kf/tech-stack.md .agent/kf/workflow.md .agent/kf/tracks.md
 
 ```
 

@@ -5,13 +5,13 @@ This file contains detailed patterns, checklists, and code samples referenced by
 ## Pre-flight Checks
 
 1. Verify Kiloforge is initialized:
-   - Check `.agent/conductor/product.md` exists
-   - Check `.agent/conductor/tracks.md` exists
-   - Check `.agent/conductor/tracks/` directory exists
+   - Check `.agent/kf/product.md` exists
+   - Check `.agent/kf/tracks.md` exists
+   - Check `.agent/kf/tracks/` directory exists
    - If missing: Display error and suggest running `/kf:setup` first
 
 2. Ensure archive directory exists (for archive/restore operations):
-   - Check if `.agent/conductor/tracks/_archive/` exists
+   - Check if `.agent/kf/tracks/_archive/` exists
    - Create if needed when performing archive operation
 
 ## Mode Detection
@@ -37,7 +37,7 @@ When invoked without arguments, display the main menu:
 
 ### 1. Gather Quick Stats
 
-Read `.agent/conductor/tracks.md` and scan directories:
+Read `.agent/kf/tracks.md` and scan directories:
 
 - Count active tracks (status `[ ]` or `[~]`)
 - Count completed tracks (status `[x]`, not archived)
@@ -88,10 +88,10 @@ Display comprehensive track overview with optional filtering.
 
 **For Active Tracks:**
 
-- Read `.agent/conductor/tracks.md`
+- Read `.agent/kf/tracks.md`
 - For each track with status `[ ]` or `[~]`:
-  - Read `.agent/conductor/tracks/{trackId}/metadata.json` for type, dates
-  - Read `.agent/conductor/tracks/{trackId}/plan.md` for task counts
+  - Read `.agent/kf/tracks/{trackId}/metadata.json` for type, dates
+  - Read `.agent/kf/tracks/{trackId}/plan.md` for task counts
   - Calculate progress percentage
 
 **For Completed Tracks:**
@@ -101,7 +101,7 @@ Display comprehensive track overview with optional filtering.
 
 **For Archived Tracks:**
 
-- Scan `.agent/conductor/tracks/_archive/` directory
+- Scan `.agent/kf/tracks/_archive/` directory
 - Read each `metadata.json` for archive reason and date
 
 ### 2. Output Format
@@ -176,7 +176,7 @@ Move completed tracks to the archive directory.
 
 #### 1. Validate Track
 
-- Check track exists in `.agent/conductor/tracks/{track-id}/`
+- Check track exists in `.agent/kf/tracks/{track-id}/`
 - If not found, display error with available tracks:
 
   ```
@@ -197,14 +197,14 @@ Move completed tracks to the archive directory.
 
   Archived: {archived_at}
   Reason:   {archive_reason}
-  Location: .agent/conductor/tracks/_archive/{track-id}/
+  Location: .agent/kf/tracks/_archive/{track-id}/
 
   To restore: /kf:manage --restore {track-id}
   ```
 
 #### 2. Verify Completion Status
 
-Read `.agent/conductor/tracks/{track-id}/metadata.json` and `plan.md`:
+Read `.agent/kf/tracks/{track-id}/metadata.json` and `plan.md`:
 
 - If status is not `completed` or `[x]`:
 
@@ -254,8 +254,8 @@ Tasks:    {completed}/{total} complete
 Reason:   {reason}
 
 Actions:
-- Move .agent/conductor/tracks/{track-id}/ to .agent/conductor/tracks/_archive/{track-id}/
-- Update .agent/conductor/tracks.md (move to Archived Tracks section)
+- Move .agent/kf/tracks/{track-id}/ to .agent/kf/tracks/_archive/{track-id}/
+- Update .agent/kf/tracks.md (move to Archived Tracks section)
 - Update metadata.json with archive info
 - Create git commit: chore(kf): Archive track '{title}'
 
@@ -294,7 +294,7 @@ Wait for the script to complete successfully. The script will automatically hand
 
 Track archived: {track-id} - {title}
 
-Location:  .agent/conductor/tracks/_archive/{track-id}/
+Location:  .agent/kf/tracks/_archive/{track-id}/
 Reason:    {reason}
 Commit:    {sha}
 
@@ -393,8 +393,8 @@ Tracks to archive:
 Archive reason for all: Completed
 
 Actions:
-- Move 2 track directories to .agent/conductor/tracks/_archive/
-- Update .agent/conductor/tracks.md
+- Move 2 track directories to .agent/kf/tracks/_archive/
+- Update .agent/kf/tracks.md
 - Create git commit: chore(kf): Archive 2 completed tracks
 
 ================================================================================
@@ -407,7 +407,7 @@ Type 'YES' to proceed, or anything else to cancel:
 - Archive each track sequentially
 - Single git commit for all:
   ```bash
-  git add .agent/conductor/tracks/_archive/ .agent/conductor/tracks.md
+  git add .agent/kf/tracks/_archive/ .agent/kf/tracks.md
   git commit -m "chore(kf): Archive {N} completed tracks"
   ```
 
@@ -421,7 +421,7 @@ Restore archived tracks back to active status.
 
 #### 1. Validate Track
 
-- Check track exists in `.agent/conductor/tracks/_archive/{track-id}/`
+- Check track exists in `.agent/kf/tracks/_archive/{track-id}/`
 - If not found:
 
   ```
@@ -435,13 +435,13 @@ Restore archived tracks back to active status.
 
 #### 2. Check for Conflicts
 
-- Verify no active track with same ID exists in `.agent/conductor/tracks/`
+- Verify no active track with same ID exists in `.agent/kf/tracks/`
 - If conflict:
 
   ```
   ERROR: Cannot restore '{track-id}' - a track with this ID already exists.
 
-  Active track: .agent/conductor/tracks/{track-id}/
+  Active track: .agent/kf/tracks/{track-id}/
 
   Options:
   1. Delete existing track first
@@ -466,8 +466,8 @@ Archived: {archived_at}
 Reason:   {archive_reason}
 
 Actions:
-- Move .agent/conductor/tracks/_archive/{track-id}/ to .agent/conductor/tracks/{track-id}/
-- Update .agent/conductor/tracks.md (move to Completed Tracks section)
+- Move .agent/kf/tracks/_archive/{track-id}/ to .agent/kf/tracks/{track-id}/
+- Update .agent/kf/tracks.md (move to Completed Tracks section)
 - Update metadata.json
 - Create git commit: chore(kf): Restore track '{title}'
 
@@ -484,10 +484,10 @@ Type 'YES' to proceed, or anything else to cancel:
 1. Move track directory:
 
    ```bash
-   mv .agent/conductor/tracks/_archive/{track-id} .agent/conductor/tracks/
+   mv .agent/kf/tracks/_archive/{track-id} .agent/kf/tracks/
    ```
 
-2. Update `.agent/conductor/tracks/{track-id}/metadata.json`:
+2. Update `.agent/kf/tracks/{track-id}/metadata.json`:
 
    ```json
    {
@@ -497,13 +497,13 @@ Type 'YES' to proceed, or anything else to cancel:
    }
    ```
 
-3. Update `.agent/conductor/tracks.md`:
+3. Update `.agent/kf/tracks.md`:
    - Remove entry from Archived Tracks section
    - Add entry to Completed Tracks section
 
 4. Git commit:
    ```bash
-   git add .agent/conductor/tracks/{track-id} .agent/conductor/tracks.md
+   git add .agent/kf/tracks/{track-id} .agent/kf/tracks.md
    git commit -m "chore(kf): Restore track '{title}'"
    ```
 
@@ -516,7 +516,7 @@ Type 'YES' to proceed, or anything else to cancel:
 
 Track restored: {track-id} - {title}
 
-Location:  .agent/conductor/tracks/{track-id}/
+Location:  .agent/kf/tracks/{track-id}/
 Status:    completed
 
 Next steps:
@@ -561,8 +561,8 @@ Permanently remove tracks with safety confirmations.
 
 Search for track in:
 
-1. `.agent/conductor/tracks/{track-id}/` (active/completed)
-2. `.agent/conductor/tracks/_archive/{track-id}/` (archived)
+1. `.agent/kf/tracks/{track-id}/` (active/completed)
+2. `.agent/kf/tracks/_archive/{track-id}/` (archived)
 
 If not found:
 
@@ -615,7 +615,7 @@ Without `--force` flag, require explicit selection.
 Track:    {track-id} - {title}
 Type:     {type}
 Status:   {status}
-Location: .agent/conductor/tracks/{track-id}/ (or _archive/)
+Location: .agent/kf/tracks/{track-id}/ (or _archive/)
 Created:  {created_date}
 Files:    {count} (spec.md, plan.md, metadata.json, index.md)
 Commits:  {count} related commits (will NOT be deleted)
@@ -637,17 +637,17 @@ Type 'DELETE' to permanently remove, or anything else to cancel:
 1. Remove track directory:
 
    ```bash
-   rm -rf .agent/conductor/tracks/{track-id}
+   rm -rf .agent/kf/tracks/{track-id}
    # or
-   rm -rf .agent/conductor/tracks/_archive/{track-id}
+   rm -rf .agent/kf/tracks/_archive/{track-id}
    ```
 
-2. Update `.agent/conductor/tracks.md`:
+2. Update `.agent/kf/tracks.md`:
    - Remove entry from appropriate section (Active, Completed, or Archived)
 
 3. Git commit:
    ```bash
-   git add .agent/conductor/tracks.md
+   git add .agent/kf/tracks.md
    git commit -m "chore(kf): Delete track '{title}'"
    ```
 
@@ -709,8 +709,8 @@ Change track IDs with full reference updates.
 
 Check track exists in:
 
-- `.agent/conductor/tracks/{old-id}/`
-- `.agent/conductor/tracks/_archive/{old-id}/`
+- `.agent/kf/tracks/{old-id}/`
+- `.agent/kf/tracks/_archive/{old-id}/`
 
 If not found:
 
@@ -757,7 +757,7 @@ Current:  {old-id} - {title}
 New ID:   {new-id}
 
 Changes:
-- Rename .agent/conductor/tracks/{old-id}/ to {new-id}/
+- Rename .agent/kf/tracks/{old-id}/ to {new-id}/
 - Update tracks.md entry
 - Update metadata.json id field
 - Update plan.md track ID header
@@ -775,12 +775,12 @@ Type 'YES' to proceed, or anything else to cancel:
 1. Rename directory:
 
    ```bash
-   mv .agent/conductor/tracks/{old-id} .agent/conductor/tracks/{new-id}
+   mv .agent/kf/tracks/{old-id} .agent/kf/tracks/{new-id}
    # or for archived:
-   mv .agent/conductor/tracks/_archive/{old-id} .agent/conductor/tracks/_archive/{new-id}
+   mv .agent/kf/tracks/_archive/{old-id} .agent/kf/tracks/_archive/{new-id}
    ```
 
-2. Update `.agent/conductor/tracks/{new-id}/metadata.json`:
+2. Update `.agent/kf/tracks/{new-id}/metadata.json`:
 
    ```json
    {
@@ -792,16 +792,16 @@ Type 'YES' to proceed, or anything else to cancel:
 
    If `previous_ids` already exists, append the old ID.
 
-3. Update `.agent/conductor/tracks/{new-id}/plan.md`:
+3. Update `.agent/kf/tracks/{new-id}/plan.md`:
    - Change track ID in header line
 
-4. Update `.agent/conductor/tracks.md`:
+4. Update `.agent/kf/tracks.md`:
    - Update the track ID in the appropriate section
    - Update folder link path
 
 5. Git commit:
    ```bash
-   git add .agent/conductor/tracks/{new-id} .agent/conductor/tracks.md
+   git add .agent/kf/tracks/{new-id} .agent/kf/tracks.md
    git commit -m "chore(kf): Rename track '{old-id}' to '{new-id}'"
    ```
 
@@ -814,7 +814,7 @@ Type 'YES' to proceed, or anything else to cancel:
 
 Track renamed: {old-id} → {new-id}
 
-New location: .agent/conductor/tracks/{new-id}/
+New location: .agent/kf/tracks/{new-id}/
 
 Note: Historical git commits still reference '{old-id}'.
 
@@ -866,7 +866,7 @@ Detect and fix orphaned track artifacts.
 
 **Directory Orphans:**
 
-- Scan `.agent/conductor/tracks/` for directories
+- Scan `.agent/kf/tracks/` for directories
 - Check each against tracks.md entries
 - Flag directories not in registry
 
@@ -900,8 +900,8 @@ Detect and fix orphaned track artifacts.
 Scanning for issues...
 
 ORPHANED DIRECTORIES (not in tracks.md):
-  1. .agent/conductor/tracks/test-feature_20241201/
-  2. .agent/conductor/tracks/experiment_20241220/
+  1. .agent/kf/tracks/test-feature_20241201/
+  2. .agent/kf/tracks/experiment_20241220/
 
 REGISTRY ORPHANS (no matching folder):
   3. broken-track_20250101 (listed in tracks.md)
@@ -955,7 +955,7 @@ For each directory:
 - Read metadata.json if exists for track info
 - If no metadata, prompt for track details:
 
-  Found: .agent/conductor/tracks/test-feature_20241201/
+  Found: .agent/kf/tracks/test-feature_20241201/
 
   Enter track title (or 'skip' to ignore):
   Enter track type (feature/bug/chore/refactor):
@@ -1001,7 +1001,7 @@ old-work_20250101:
 Execute all applicable fixes in sequence, then:
 
 ```bash
-git add .agent/conductor/
+git add .agent/kf/
 git commit -m "chore(kf): Clean up {N} orphaned track artifacts"
 ```
 
@@ -1046,7 +1046,7 @@ Current state:
 - tracks.md: {status}
 
 To retry the commit:
-  git add .agent/conductor/tracks.md .agent/conductor/tracks/{track-id}
+  git add .agent/kf/tracks.md .agent/kf/tracks/{track-id}
   git commit -m "{intended message}"
 ```
 

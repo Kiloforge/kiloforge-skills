@@ -26,8 +26,8 @@ Remove archived (`_archive/`) and completed (`[x]`) track directories from the w
 
 Scan **both** sources of completed/archived tracks:
 
-1. **Archived tracks**: List all track directories in `.agent/conductor/tracks/_archive/` (if the directory exists)
-2. **Completed index tracks**: Parse `.agent/conductor/tracks.md` and find all rows marked `[x]` in the main table (above the `## Archived Tracks` section) that have a corresponding directory in `.agent/conductor/tracks/{trackId}/`
+1. **Archived tracks**: List all track directories in `.agent/kf/tracks/_archive/` (if the directory exists)
+2. **Completed index tracks**: Parse `.agent/kf/tracks.md` and find all rows marked `[x]` in the main table (above the `## Archived Tracks` section) that have a corresponding directory in `.agent/kf/tracks/{trackId}/`
 
 If both sources are empty, report "Nothing to compact" and stop.
 
@@ -58,7 +58,7 @@ Compute summary stats across ALL compactable tracks (both sources combined):
 
 ### Step 4: Update archive-compactions.md
 
-Create or append to `.agent/conductor/archive-compactions.md`.
+Create or append to `.agent/kf/archive-compactions.md`.
 
 **If creating the file for the first time**, use this format:
 
@@ -67,8 +67,8 @@ Create or append to `.agent/conductor/archive-compactions.md`.
 
 Archived track data can be recovered by checking out the commit before each compaction point.
 
-## Source: `.agent/conductor/tracks.md`
-## Archive: `.agent/conductor/tracks/_archive/`
+## Source: `.agent/kf/tracks.md`
+## Archive: `.agent/kf/tracks/_archive/`
 
 If the tracks index or archive folder location is ever changed, declare the new paths below
 and start a new compaction table under that declaration.
@@ -97,17 +97,17 @@ Remove directories from **both** sources:
 
 ```bash
 # Remove archived tracks
-rm -rf .agent/conductor/tracks/_archive/
+rm -rf .agent/kf/tracks/_archive/
 
 # Remove completed [x] track directories from the main tracks dir
-rm -rf .agent/conductor/tracks/{trackId}/  # for each [x] track identified in Step 1
+rm -rf .agent/kf/tracks/{trackId}/  # for each [x] track identified in Step 1
 ```
 
 **Important:** Only delete directories for tracks that were identified in Step 1. Do NOT delete directories for `[ ]`, `[~]`, or `[future]` tracks.
 
 ### Step 6: Clean up tracks.md
 
-Update `.agent/conductor/tracks.md`:
+Update `.agent/kf/tracks.md`:
 
 1. **Remove all `[x]` completed rows** from the main index table. Only `[ ]` (pending), `[~]` (in progress), and `[future]` rows should remain.
 2. **Remove all content under the `## Archived Tracks` section**. This includes all batch archive entries added by `/kf-bulk-archive`. The section header itself can be kept (empty) or removed — either is fine.
@@ -117,7 +117,7 @@ Both the `[x]` index entries and the "## Archived Tracks" batch listings are pre
 ### Step 7: Commit
 
 ```bash
-git add .agent/conductor/tracks/ .agent/conductor/tracks.md .agent/conductor/archive-compactions.md
+git add .agent/kf/tracks/ .agent/kf/tracks.md .agent/kf/archive-compactions.md
 git commit -m "chore: compact archive ({completed_count} completed, {uncompleted_count} uncompleted — recover from {HASH})"
 ```
 
@@ -137,10 +137,10 @@ Date range (created):      {first_created} — {last_created}
 Date range (completed):    {first_completed} — {last_completed}
 
 Recovery commands:
-  git show {HASH}:.agent/conductor/tracks.md
-  git ls-tree {HASH} .agent/conductor/tracks/_archive/
-  git ls-tree {HASH} .agent/conductor/tracks/
-  git show {HASH}:.agent/conductor/tracks/{trackId}/spec.md
+  git show {HASH}:.agent/kf/tracks.md
+  git ls-tree {HASH} .agent/kf/tracks/_archive/
+  git ls-tree {HASH} .agent/kf/tracks/
+  git show {HASH}:.agent/kf/tracks/{trackId}/spec.md
 ================================================================================
 ```
 
@@ -150,16 +150,16 @@ To recover compacted tracks, use the commit hash from the compactions table:
 
 ```bash
 # Recover the full tracks.md index at that point (includes [x] entries)
-git show {HASH}:.agent/conductor/tracks.md
+git show {HASH}:.agent/kf/tracks.md
 
 # List all archived tracks at that point
-git ls-tree {HASH} .agent/conductor/tracks/_archive/
+git ls-tree {HASH} .agent/kf/tracks/_archive/
 
 # List all track directories (including completed ones) at that point
-git ls-tree {HASH} .agent/conductor/tracks/
+git ls-tree {HASH} .agent/kf/tracks/
 
 # Recover a specific track's files
-git show {HASH}:.agent/conductor/tracks/{trackId}/spec.md
-git show {HASH}:.agent/conductor/tracks/{trackId}/metadata.json
-git show {HASH}:.agent/conductor/tracks/_archive/{trackId}/spec.md
+git show {HASH}:.agent/kf/tracks/{trackId}/spec.md
+git show {HASH}:.agent/kf/tracks/{trackId}/metadata.json
+git show {HASH}:.agent/kf/tracks/_archive/{trackId}/spec.md
 ```
