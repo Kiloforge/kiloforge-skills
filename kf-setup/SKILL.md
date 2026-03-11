@@ -106,26 +106,37 @@ Initialize or resume Kiloforge project setup. This command creates foundational 
 
    **Set up Kiloforge venv and install PyYAML:**
 
-   Kiloforge uses a shared virtual environment at `~/.kf/.venv` so dependencies don't pollute the system Python. All kf scripts use this venv's interpreter.
+   Kiloforge uses a project-local virtual environment at `.agent/kf/.venv` so dependencies don't pollute the system Python. All kf scripts use this venv's interpreter.
 
    ```bash
    # Create venv if it doesn't exist
-   if [ ! -d "$HOME/.kf/.venv" ]; then
-     python3 -m venv "$HOME/.kf/.venv"
+   if [ ! -d ".agent/kf/.venv" ]; then
+     python3 -m venv ".agent/kf/.venv"
    fi
 
    # Install PyYAML into the venv
-   "$HOME/.kf/.venv/bin/pip" install pyyaml
+   ".agent/kf/.venv/bin/pip" install pyyaml
    ```
 
    Verify it succeeded:
    ```bash
-   "$HOME/.kf/.venv/bin/python" -c "import yaml; print('PyYAML', yaml.__version__)"
+   ".agent/kf/.venv/bin/python" -c "import yaml; print('PyYAML', yaml.__version__)"
    ```
 
    If venv creation fails (e.g., `python3-venv` not installed on Debian/Ubuntu), install it first:
    - **Debian/Ubuntu:** `sudo apt-get install -y python3-venv`
    - Then retry venv creation.
+
+   **Ensure `.venv` is gitignored:**
+
+   The venv must not be committed. Check if `.agent/kf/.gitignore` exists and contains `.venv`; if not, create or append it:
+
+   ```bash
+   mkdir -p .agent/kf
+   if ! grep -qx '.venv' .agent/kf/.gitignore 2>/dev/null; then
+     echo '.venv' >> .agent/kf/.gitignore
+   fi
+   ```
 
 3. Check if `.agent/kf/` directory already exists in the project root:
    - If `.agent/kf/product.yaml` or `.agent/kf/tracks.yaml` exists: Ask user whether to resume setup or reinitialize
@@ -479,8 +490,8 @@ mkdir -p .agent/kf/bin
 cp "$SKILL_DIR/../kf-bin/scripts/"* .agent/kf/bin/
 chmod +x .agent/kf/bin/*
 
-# Update Python script shebangs to use the Kiloforge venv
-KF_PYTHON="$HOME/.kf/.venv/bin/python"
+# Update Python script shebangs to use the project-local venv
+KF_PYTHON="$(pwd)/.agent/kf/.venv/bin/python"
 for f in .agent/kf/bin/*; do
   if head -1 "$f" | grep -q python; then
     sed -i.bak "1s|.*|#!$KF_PYTHON|" "$f" && rm -f "$f.bak"
@@ -490,7 +501,7 @@ done
 
 The `$SKILL_DIR` variable resolves to the directory containing this skill's `SKILL.md`. The `kf-bin/scripts/` directory is one level up (at the skills repo root, inside the `kf-bin` skill).
 
-Python scripts are rewritten to use the Kiloforge venv (`~/.kf/.venv/bin/python`) so they have access to PyYAML without polluting the system Python.
+Python scripts are rewritten to use the project-local venv (`.agent/kf/.venv/bin/python`) so they have access to PyYAML without polluting the system Python.
 
 This installs the following tools:
 

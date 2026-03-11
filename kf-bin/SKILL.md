@@ -14,9 +14,9 @@ Display available CLI tools installed to `.agent/kf/bin/` during project setup.
 
 ## Runtime Environment
 
-All CLI tools are Python scripts that require the Kiloforge virtual environment at `~/.kf/.venv`. This venv is created automatically during `/kf-setup` and contains Python 3 with PyYAML.
+All CLI tools are Python scripts that require the Kiloforge virtual environment at `.agent/kf/.venv`. This venv is created automatically during `/kf-setup` and contains Python 3 with PyYAML.
 
-**Running scripts:** During setup, script shebangs are rewritten to point directly at the venv interpreter (`~/.kf/.venv/bin/python`), so scripts run with the correct environment automatically:
+**Running scripts:** During setup, script shebangs are rewritten to point directly at the venv interpreter (`.agent/kf/.venv/bin/python`), so scripts run with the correct environment automatically:
 
 ```bash
 # Scripts are executable and use the venv automatically via their shebang
@@ -27,13 +27,13 @@ All CLI tools are Python scripts that require the Kiloforge virtual environment 
 
 ```bash
 # Create venv (skip if it exists)
-python3 -m venv ~/.kf/.venv
+python3 -m venv .agent/kf/.venv
 
 # Install dependencies
-~/.kf/.venv/bin/pip install pyyaml
+.agent/kf/.venv/bin/pip install pyyaml
 
 # Rewrite shebangs to use the venv
-KF_PYTHON="$HOME/.kf/.venv/bin/python"
+KF_PYTHON=".agent/kf/.venv/bin/python"
 for f in .agent/kf/bin/*.py; do
   sed -i.bak "1s|.*|#!$KF_PYTHON|" "$f" && rm -f "$f.bak"
 done

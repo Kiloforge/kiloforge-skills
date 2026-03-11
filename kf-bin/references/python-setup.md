@@ -1,6 +1,6 @@
 # Python Setup for Kiloforge CLI Tools
 
-All Kiloforge CLI tools require Python 3 and PyYAML. During `/kf-setup`, a shared virtual environment is created at `~/.kf/.venv` with these dependencies pre-installed. Script shebangs are rewritten to use this venv.
+All Kiloforge CLI tools require Python 3 and PyYAML. During `/kf-setup`, a project-local virtual environment is created at `.agent/kf/.venv` with these dependencies pre-installed. Script shebangs are rewritten to use this venv.
 
 If a script fails with a Python-related error, follow this guide to restore the environment.
 
@@ -92,13 +92,13 @@ After installing on Windows, use `python` instead of `python3` (Windows installs
 
 ```bash
 # Create venv if missing
-if [ ! -d "$HOME/.kf/.venv" ]; then
-  mkdir -p "$HOME/.kf"
-  python3 -m venv "$HOME/.kf/.venv"
+if [ ! -d ".agent/kf/.venv" ]; then
+  mkdir -p .agent/kf
+  python3 -m venv ".agent/kf/.venv"
 fi
 
 # Install PyYAML
-"$HOME/.kf/.venv/bin/pip" install pyyaml
+".agent/kf/.venv/bin/pip" install pyyaml
 ```
 
 If `python3 -m venv` fails on Debian/Ubuntu with "ensurepip is not available":
@@ -112,13 +112,13 @@ sudo apt-get install -y python3-venv
 
 ```powershell
 # Create venv if missing
-if (-not (Test-Path "$env:USERPROFILE\.kf\.venv")) {
-  New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.kf"
-  python -m venv "$env:USERPROFILE\.kf\.venv"
+if (-not (Test-Path ".agent\kf\.venv")) {
+  New-Item -ItemType Directory -Force -Path ".agent\kf"
+  python -m venv ".agent\kf\.venv"
 }
 
 # Install PyYAML
-& "$env:USERPROFILE\.kf\.venv\Scripts\pip" install pyyaml
+& ".agent\kf\.venv\Scripts\pip" install pyyaml
 ```
 
 ## Step 3: Verify
@@ -126,13 +126,13 @@ if (-not (Test-Path "$env:USERPROFILE\.kf\.venv")) {
 ### macOS / Linux
 
 ```bash
-"$HOME/.kf/.venv/bin/python" -c "import yaml; print('PyYAML', yaml.__version__)"
+".agent/kf/.venv/bin/python" -c "import yaml; print('PyYAML', yaml.__version__)"
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
-& "$env:USERPROFILE\.kf\.venv\Scripts\python" -c "import yaml; print('PyYAML', yaml.__version__)"
+& ".agent\kf\.venv\Scripts\python" -c "import yaml; print('PyYAML', yaml.__version__)"
 ```
 
 ## Rewrite Script Shebangs (macOS / Linux only)
@@ -140,7 +140,7 @@ if (-not (Test-Path "$env:USERPROFILE\.kf\.venv")) {
 If scripts were installed before the venv existed, their shebangs may point to the wrong interpreter:
 
 ```bash
-KF_PYTHON="$HOME/.kf/.venv/bin/python"
+KF_PYTHON=".agent/kf/.venv/bin/python"
 for f in .agent/kf/bin/*; do
   if head -1 "$f" | grep -q python; then
     sed -i.bak "1s|.*|#!$KF_PYTHON|" "$f" && rm -f "$f.bak"
