@@ -25,15 +25,15 @@ All merge operations use `.agent/kf/bin/kf-merge`, which encapsulates the full p
 
 Used by **kf-architect** and **kf-report** — changes are limited to `.agent/kf/` files (track definitions, reports). No test/build verification is needed.
 
-Track content (unique per-track directories) is committed **before** acquiring the lock. The lock is only held while updating shared registry files (`tracks.yaml`, `deps.yaml`, `conflicts.yaml`) and merging. This minimizes lock contention and prevents registry conflicts.
+Track content (unique per-track directories) is committed first. Then a single lock window handles rebase, registry update, and merge. Registry commands run against the clean rebased state so conflicts on shared files are eliminated.
 
 ```bash
-# Architect: commit track content first (no lock), then merge with registry update
+# Architect: commit track content first, then single lock window for everything else
 .agent/kf/bin/kf-merge --holder architect-1 --timeout 0 \
   --registry-cmd ".agent/kf/bin/kf-track add X --title '...' --type feature"
 ```
 
-**Steps:** lock → rebase → registry update → commit → merge → release
+**Steps:** lock → rebase → registry update → commit → ff-merge → release
 
 For **kf-report** (no registry update needed):
 

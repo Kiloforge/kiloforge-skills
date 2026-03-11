@@ -355,19 +355,12 @@ Options:
 
 **CRITICAL: Wait for explicit user approval before creating any track files.**
 
-### Step 10 — Create approved tracks (two-phase commit)
+### Step 10 — Create approved tracks
 
-Track creation is split into two commits to minimize lock contention:
+For each approved track, create `track.yaml` using CLI or direct write (see Step 8).
 
-#### 10a. Commit track content (no lock needed)
+Commit track content only — do NOT update registry files (`tracks.yaml`, `deps.yaml`, `conflicts.yaml`) yet. Registry updates happen under lock in Phase 5.
 
-Track directories are unique per track — collisions are effectively impossible. Create content freely:
-
-For each approved track:
-
-1. **Create track.yaml** using CLI or direct write (see Step 8)
-
-Commit track content only (no registry files):
 ```bash
 git add .agent/kf/tracks/{trackId}/
 git commit -m "chore: add track content {trackId} — {title}"
@@ -378,10 +371,6 @@ If multiple tracks were approved, commit them together:
 git add .agent/kf/tracks/*/track.yaml
 git commit -m "chore: add {N} track content from prompt — {brief summary}"
 ```
-
-#### 10b. Update registry (under lock)
-
-The shared registry files (`tracks.yaml`, `deps.yaml`, `conflicts.yaml`) require the merge lock to prevent conflicts. This is handled in Phase 5.
 
 Note: `index.md` is no longer maintained as a file. Agents use `kf-track index` to generate the project index on demand.
 
@@ -446,15 +435,11 @@ multi-dep-track_20260309000002Z:
 
 ## Phase 5: Merge to Primary Branch
 
-The architect must merge its track artifacts to the primary branch so that developer workers can see and claim them. This uses the **metadata merge** protocol — no test verification needed.
-
-Track content (unique per-track directories) is committed before acquiring the lock (Step 10a). The lock is only held while updating shared registry files and merging.
+The architect must merge its track artifacts to the primary branch so that developer workers can see and claim them. Track content is committed first (Step 10), then a single lock window handles: rebase → registry update → merge → release.
 
 For the full merge protocol details, see `kf-merge-protocol/SKILL.md`.
 
-### Step 11 — Merge via kf-merge
-
-The `kf-merge` script with `--registry-cmd` handles the full protocol: lock → rebase → run registry command → commit → merge → release.
+### Step 11 — Merge to primary branch
 
 ```bash
 # Build the registry command for all new tracks in this batch
@@ -471,9 +456,9 @@ REGISTRY_CMD="$REGISTRY_CMD; .agent/kf/bin/kf-track conflicts add {a} {b} {risk}
   --registry-cmd "$REGISTRY_CMD"
 ```
 
-The `--registry-cmd` flag tells `kf-merge` to run the registry update commands **after rebase** (when the working tree matches the primary branch + track content), then commit the registry changes before merging. This ensures registry updates are always applied to the latest state.
+**Flow:** acquire lock → rebase on primary → run registry commands (against clean rebased state, no conflicts) → commit → ff-merge to primary → release lock. Lock always releases on error.
 
-**Exit code 2** means the lock is held — report and **HALT** (wait for other worker to finish, then retry).
+**Exit code 2** means the lock is held — report and **HALT**.
 
 **Exit code 1** means the merge failed — report and **HALT**.
 
