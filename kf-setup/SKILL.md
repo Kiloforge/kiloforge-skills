@@ -74,15 +74,38 @@ Initialize or resume Kiloforge project setup. This command creates foundational 
    ```
    Store as `"auto_commit": true|false`.
 
-2. Check if `.agent/kf/` directory already exists in the project root:
+2. **Verify Python and PyYAML:**
+
+   Kiloforge CLI tools require Python 3 and PyYAML. Check availability:
+   ```bash
+   python3 -c "import yaml; print('PyYAML', yaml.__version__)" 2>/dev/null
+   ```
+
+   If Python 3 is not available: display error and **HALT** — Python 3 is required.
+
+   If PyYAML is missing, ask the user:
+   ```
+   Kiloforge CLI tools require PyYAML (Python YAML parser).
+
+   1. Install now (python3 -m pip install pyyaml)
+   2. Skip — I'll install it myself
+   ```
+
+   If the user chooses 1, run:
+   ```bash
+   python3 -m pip install pyyaml
+   ```
+   Verify it succeeded. If pip is not available, suggest `python3 -m ensurepip --default-pip` first.
+
+3. Check if `.agent/kf/` directory already exists in the project root:
    - If `.agent/kf/product.yaml` or `.agent/kf/tracks.yaml` exists: Ask user whether to resume setup or reinitialize
    - If `.agent/kf/setup_state.json` exists with incomplete status: Offer to resume from last step
 
-3. Detect project type by checking for existing indicators:
+4. Detect project type by checking for existing indicators:
    - **Greenfield (new project)**: No .git, no package.json, no requirements.txt, no go.mod, no src/ directory
    - **Brownfield (existing project)**: Any of the above exist
 
-4. Load or create `.agent/kf/setup_state.json`:
+5. Load or create `.agent/kf/setup_state.json`:
    ```json
    {
      "status": "in_progress",
