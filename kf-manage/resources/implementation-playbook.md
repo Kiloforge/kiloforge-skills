@@ -91,7 +91,7 @@ Display comprehensive track overview with optional filtering.
 - Run `.agent/kf/bin/kf-track.py list` to get all tracks
 - For each track with status `pending` or `in-progress`:
   - Run `.agent/kf/bin/kf-track.py get {trackId}` for type, dates
-  - Run `.agent/kf/bin/kf-track.py-content.py progress {trackId}` for task counts
+  - Run `.agent/kf/bin/kf-track-content.py progress {trackId}` for task counts
   - Calculate progress percentage
 
 **For Completed Tracks:**

@@ -35,7 +35,7 @@ This line is designed to survive compaction summaries. If you see it in your con
 
 - Verification commands: `.agent/kf/workflow.yaml`
 - Track list/statuses: `.agent/kf/bin/kf-track.py list`
-- Track progress: `.agent/kf/bin/kf-track.py-content.py progress {trackId}`
+- Track progress: `.agent/kf/bin/kf-track-content.py progress {trackId}`
 - Main worktree path: `git worktree list`
 
 ---
@@ -217,12 +217,12 @@ Read `.agent/kf/workflow.yaml` and parse:
 Load track context via CLI (now from the working tree, which is based on the primary branch):
 ```bash
 # Full track content
-.agent/kf/bin/kf-track.py-content.py show {trackId}
+.agent/kf/bin/kf-track-content.py show {trackId}
 
 # Or section by section for large tracks:
-.agent/kf/bin/kf-track.py-content.py show {trackId} --section spec
-.agent/kf/bin/kf-track.py-content.py show {trackId} --section plan
-.agent/kf/bin/kf-track.py-content.py progress {trackId}
+.agent/kf/bin/kf-track-content.py show {trackId} --section spec
+.agent/kf/bin/kf-track-content.py show {trackId} --section plan
+.agent/kf/bin/kf-track-content.py progress {trackId}
 
 # Check conflict risk with other active tracks
 .agent/kf/bin/kf-track.py conflicts list {trackId}
@@ -244,8 +244,8 @@ Follow the exact same implementation workflow as `/kf-implement`:
 - Execute each task in the plan sequentially
 - Follow TDD workflow if configured in `workflow.yaml`
 - Commit after each task completion using the commit strategy from `workflow.yaml`
-- Update task completion via CLI: `.agent/kf/bin/kf-track.py-content.py task {trackId} <phase>.<task> --done`
-- Check progress: `.agent/kf/bin/kf-track.py-content.py progress {trackId}`
+- Update task completion via CLI: `.agent/kf/bin/kf-track-content.py task {trackId} <phase>.<task> --done`
+- Check progress: `.agent/kf/bin/kf-track-content.py progress {trackId}`
 - Run phase verification at the end of each phase
 - **Do NOT pause between phases** — proceed continuously through all phases without waiting for user approval
 
@@ -257,7 +257,7 @@ After all tasks are done, update all tracking files and commit:
    ```bash
    .agent/kf/bin/kf-track.py update {trackId} --status completed
    ```
-2. Verify all tasks are marked done: `.agent/kf/bin/kf-track.py-content.py progress {trackId}`
+2. Verify all tasks are marked done: `.agent/kf/bin/kf-track-content.py progress {trackId}`
 
 ```bash
 git add .agent/kf/tracks.yaml .agent/kf/tracks/deps.yaml .agent/kf/tracks/conflicts.yaml .agent/kf/tracks/{trackId}/
@@ -393,7 +393,7 @@ Developer is ready for next track.
 
 ## Merge Lock Modes
 
-The merge lock is managed by the shared `.agent/kf/bin/kf-merge.py-lock.py` helper, which supports dual-mode acquisition:
+The merge lock is managed by the shared `.agent/kf/bin/kf-merge-lock.py` helper, which supports dual-mode acquisition:
 
 1. **HTTP mode** — Preferred when kiloforge orchestrator is running. Uses TTL (120s), heartbeat (every 30s), and server-side long-poll for `--auto-merge`. Crash recovery via automatic TTL expiry.
 2. **mkdir mode** — Fallback when orchestrator is unreachable. Uses `$(git rev-parse --git-common-dir)/merge.lock` directory. PID-based stale detection with auto-cleanup.

@@ -76,9 +76,9 @@ Load all relevant context for implementation:
 
 1. Track documents (via CLI):
    ```bash
-   .agent/kf/bin/kf-track.py-content.py show {trackId} --section spec
-   .agent/kf/bin/kf-track.py-content.py show {trackId} --section plan
-   .agent/kf/bin/kf-track.py-content.py progress {trackId}
+   .agent/kf/bin/kf-track-content.py show {trackId} --section spec
+   .agent/kf/bin/kf-track-content.py show {trackId} --section plan
+   .agent/kf/bin/kf-track-content.py progress {trackId}
    ```
 
 2. Project context:
@@ -99,13 +99,13 @@ Update track to in-progress:
 
 ## Task Execution Loop
 
-For each incomplete task (check via `.agent/kf/bin/kf-track.py-content.py progress {trackId}`):
+For each incomplete task (check via `.agent/kf/bin/kf-track-content.py progress {trackId}`):
 
 ### 1. Task Identification
 
 Find the next incomplete task:
 ```bash
-.agent/kf/bin/kf-track.py-content.py progress {trackId}
+.agent/kf/bin/kf-track-content.py progress {trackId}
 ```
 
 Look for the first task not yet marked done.
@@ -166,7 +166,7 @@ git commit -m "{commit_prefix}: {task description} ({trackId})"
 **Mark task done via CLI:**
 
 ```bash
-.agent/kf/bin/kf-track.py-content.py task {trackId} X.Y --done
+.agent/kf/bin/kf-track-content.py task {trackId} X.Y --done
 ```
 
 Commit the track update:
@@ -181,7 +181,7 @@ git commit -m "chore: mark task X.Y complete ({trackId})"
 After each task, check if phase is complete:
 
 ```bash
-.agent/kf/bin/kf-track.py-content.py progress {trackId}
+.agent/kf/bin/kf-track-content.py progress {trackId}
 ```
 
 If all tasks in current phase are done:
@@ -280,7 +280,7 @@ All tasks complete. Running final verification...
 
 Verify completion:
 ```bash
-.agent/kf/bin/kf-track.py-content.py progress {trackId}
+.agent/kf/bin/kf-track-content.py progress {trackId}
 ```
 
 ### 3. Documentation Sync Offer
@@ -331,7 +331,7 @@ If implementation is paused and resumed:
 
 1. Check current progress:
    ```bash
-   .agent/kf/bin/kf-track.py-content.py progress {trackId}
+   .agent/kf/bin/kf-track-content.py progress {trackId}
    ```
 2. Find current incomplete task
 3. Ask user:

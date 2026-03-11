@@ -51,6 +51,7 @@ For detailed platform-specific installation instructions (macOS, Linux, Windows)
 | `kf-track-content.py` | Track content management (init, show, spec, plan, task progress) |
 | `kf-merge.py` | Unified merge protocol (lock, rebase, verify, merge, release) |
 | `kf-merge-lock.py` | Cross-worktree merge lock (acquire, release, heartbeat) |
+| `kf-claim.py` | Per-worktree track claim lock (acquire, release, list, find) |
 | `kf-dispatch.py` | Compute dispatch assignments for idle developer worktrees |
 | `kf-worktree-env.py` | Detect git worktree context and export env vars |
 

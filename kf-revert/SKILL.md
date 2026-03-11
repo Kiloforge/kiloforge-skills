@@ -247,7 +247,7 @@ After successful git reverts, update track.yaml:
 
 1. For each reverted task, reset status to pending using CLI:
    ```bash
-   .agent/kf/bin/kf-track.py-content.py task {trackId} X.Y --undo
+   .agent/kf/bin/kf-track-content.py task {trackId} X.Y --undo
    ```
 2. Update track status in track.yaml using CLI:
    ```bash

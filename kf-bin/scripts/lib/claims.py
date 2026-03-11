@@ -1,14 +1,29 @@
-"""Track claim detection via git branches and orchestrator API."""
+"""Track claim detection via worktree locks, orchestrator API, and git branches.
+
+Detection priority (fastest first):
+1. Worktree claim locks (instant — filesystem read)
+2. Orchestrator API (fast — HTTP call)
+3. Git branch scan (slow — lists branches + worktrees)
+"""
 
 import json
 import os
 import urllib.request
 from typing import Optional
 from . import git
+from . import worktree_lock
+
+
+def worktree_lock_claimed() -> list[tuple[str, str]]:
+    """Read claims from worktree lock files (instant).
+
+    Returns list of (track_id, worker_name) tuples.
+    """
+    return worktree_lock.claimed_track_ids()
 
 
 def branch_scan_claimed() -> list[tuple[str, str]]:
-    """Scan git branches for implementation branches.
+    """Scan git branches for implementation branches (slow fallback).
 
     Returns list of (track_id, worker_name) tuples.
     Worker name is extracted from worktree folder name if identifiable.
@@ -63,14 +78,34 @@ def server_query_claims() -> list[tuple[str, str]]:
 
 
 def get_claimed_tracks() -> list[tuple[str, str]]:
-    """Get claimed tracks: try server first, fall back to branch scan.
+    """Get claimed tracks from all sources, deduplicated.
 
+    Priority: worktree locks > server > branch scan.
     Returns list of (track_id, worker_name) tuples.
     """
-    claims = server_query_claims()
-    if not claims:
-        claims = branch_scan_claimed()
-    return claims
+    seen = set()
+    results = []
+
+    # 1. Worktree claim locks (instant)
+    for tid, worker in worktree_lock_claimed():
+        if tid not in seen:
+            seen.add(tid)
+            results.append((tid, worker))
+
+    # 2. Orchestrator API
+    for tid, worker in server_query_claims():
+        if tid not in seen:
+            seen.add(tid)
+            results.append((tid, worker))
+
+    # 3. Branch scan (slowest — only if no claims found yet)
+    if not results:
+        for tid, worker in branch_scan_claimed():
+            if tid not in seen:
+                seen.add(tid)
+                results.append((tid, worker))
+
+    return results
 
 
 def is_track_claimed(track_id: str) -> tuple[bool, Optional[str]]:
@@ -78,6 +113,13 @@ def is_track_claimed(track_id: str) -> tuple[bool, Optional[str]]:
 
     Returns (is_claimed, worker_name).
     """
+    # Fast path: check worktree locks first
+    claim = worktree_lock.find_track_claim(track_id)
+    if claim:
+        wt_name, info = claim
+        return True, info.get("holder", wt_name)
+
+    # Full search
     claims = get_claimed_tracks()
     for tid, worker in claims:
         if tid == track_id:

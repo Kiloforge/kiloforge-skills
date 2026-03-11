@@ -202,15 +202,15 @@ Use `kf-track init` to create the track scaffold, then populate spec/plan via CL
 
 ```bash
 # 1. Create the track scaffold
-.agent/kf/bin/kf-track.py-content.py init {trackId} --title "{title}" --type {type} --summary "{1-2 sentence summary}"
+.agent/kf/bin/kf-track-content.py init {trackId} --title "{title}" --type {type} --summary "{1-2 sentence summary}"
 
 # 2. Set spec fields
-.agent/kf/bin/kf-track.py-content.py spec {trackId} --field context --set "{context text}"
-.agent/kf/bin/kf-track.py-content.py spec {trackId} --field codebase_analysis --set "{analysis text}"
-.agent/kf/bin/kf-track.py-content.py spec {trackId} --field out_of_scope --set "{exclusions}"
-.agent/kf/bin/kf-track.py-content.py spec {trackId} --field technical_notes --set "{approach}"
-.agent/kf/bin/kf-track.py-content.py spec {trackId} --field acceptance_criteria --append "Criterion 1"
-.agent/kf/bin/kf-track.py-content.py spec {trackId} --field acceptance_criteria --append "Criterion 2"
+.agent/kf/bin/kf-track-content.py spec {trackId} --field context --set "{context text}"
+.agent/kf/bin/kf-track-content.py spec {trackId} --field codebase_analysis --set "{analysis text}"
+.agent/kf/bin/kf-track-content.py spec {trackId} --field out_of_scope --set "{exclusions}"
+.agent/kf/bin/kf-track-content.py spec {trackId} --field technical_notes --set "{approach}"
+.agent/kf/bin/kf-track-content.py spec {trackId} --field acceptance_criteria --append "Criterion 1"
+.agent/kf/bin/kf-track-content.py spec {trackId} --field acceptance_criteria --append "Criterion 2"
 ```
 
 Alternatively, you may write `track.yaml` directly as a structured YAML file. The canonical schema:

@@ -32,8 +32,8 @@ You have access to the Kiloforge CLI tools:
 - `.agent/kf/bin/kf-track.py list` — List all tracks with statuses
 - `.agent/kf/bin/kf-track.py get <id>` — Get track metadata
 - `.agent/kf/bin/kf-track.py status` — Full project status dashboard
-- `.agent/kf/bin/kf-track.py-content.py show <id>` — Read a track's full spec and plan
-- `.agent/kf/bin/kf-track.py-content.py progress <id>` — Check task completion for a track
+- `.agent/kf/bin/kf-track-content.py show <id>` — Read a track's full spec and plan
+- `.agent/kf/bin/kf-track-content.py progress <id>` — Check task completion for a track
 - `.agent/kf/bin/kf-track.py index` — Generated summary of all tracks
 
 ## Available Slash Commands

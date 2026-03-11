@@ -240,7 +240,7 @@ Group into phases with: name, date range, bullet-point highlights, commit count.
 **Step 4:** For active/pending tracks, query progress via CLI:
 ```bash
 .agent/kf/bin/kf-track.py list --active --json
-.agent/kf/bin/kf-track.py-content.py progress {trackId}
+.agent/kf/bin/kf-track-content.py progress {trackId}
 ```
 
 **Step 5:** Detect blockers — check dependency graph via CLI:
@@ -249,7 +249,7 @@ Group into phases with: name, date range, bullet-point highlights, commit count.
 ```
 Also scan track specs for `BLOCKED:`, `depends on`, `dependency` keywords:
 ```bash
-.agent/kf/bin/kf-track.py-content.py show {trackId} --section spec
+.agent/kf/bin/kf-track-content.py show {trackId} --section spec
 ```
 
 ### Output Template

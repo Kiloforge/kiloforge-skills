@@ -502,6 +502,7 @@ This installs the following tools:
 | `kf-track-content` | python3 | Track content management (init, show, spec, plan, task progress) |
 | `kf-merge` | python3 | Unified merge protocol (lock, rebase, verify, merge, release) |
 | `kf-merge-lock` | python3 | Cross-worktree merge lock (acquire, release, heartbeat) |
+| `kf-claim` | python3 | Per-worktree track claim lock (acquire, release, list, find) |
 | `kf-dispatch` | python3 | Compute dispatch assignments for idle developer worktrees |
 | `kf-worktree-env` | python3 | Detect git worktree context and export env vars |
 
@@ -565,9 +566,10 @@ When all files are created:
    - .agent/kf/bin/kf-preflight.py
    - .agent/kf/bin/kf-primary-branch.py
    - .agent/kf/bin/kf-track.py
-   - .agent/kf/bin/kf-track.py-content.py
+   - .agent/kf/bin/kf-track-content.py
    - .agent/kf/bin/kf-merge.py
-   - .agent/kf/bin/kf-merge.py-lock.py
+   - .agent/kf/bin/kf-merge-lock.py
+   - .agent/kf/bin/kf-claim.py
    - .agent/kf/bin/kf-dispatch.py
    - .agent/kf/bin/kf-worktree-env.py
    - .agent/kf/code_styleguides/[languages]

@@ -54,9 +54,9 @@ git show ${PRIMARY_BRANCH}:.agent/kf/tracks/ > /dev/null 2>&1 && echo "PASS: .ag
 # CLI tools
 git show ${PRIMARY_BRANCH}:.agent/kf/bin/kf-primary-branch.py > /dev/null 2>&1 && echo "PASS: kf-primary-branch exists" || echo "FAIL: kf-primary-branch missing"
 git show ${PRIMARY_BRANCH}:.agent/kf/bin/kf-track.py > /dev/null 2>&1 && echo "PASS: kf-track exists" || echo "FAIL: kf-track missing"
-git show ${PRIMARY_BRANCH}:.agent/kf/bin/kf-track.py-content.py > /dev/null 2>&1 && echo "PASS: kf-track-content exists" || echo "FAIL: kf-track-content missing"
+git show ${PRIMARY_BRANCH}:.agent/kf/bin/kf-track-content.py > /dev/null 2>&1 && echo "PASS: kf-track-content exists" || echo "FAIL: kf-track-content missing"
 git show ${PRIMARY_BRANCH}:.agent/kf/bin/kf-merge.py > /dev/null 2>&1 && echo "PASS: kf-merge exists" || echo "FAIL: kf-merge missing"
-git show ${PRIMARY_BRANCH}:.agent/kf/bin/kf-merge.py-lock.py > /dev/null 2>&1 && echo "PASS: kf-merge-lock exists" || echo "FAIL: kf-merge-lock missing"
+git show ${PRIMARY_BRANCH}:.agent/kf/bin/kf-merge-lock.py > /dev/null 2>&1 && echo "PASS: kf-merge-lock exists" || echo "FAIL: kf-merge-lock missing"
 git show ${PRIMARY_BRANCH}:.agent/kf/bin/kf-worktree-env.py > /dev/null 2>&1 && echo "PASS: kf-worktree-env exists" || echo "FAIL: kf-worktree-env missing"
 ```
 

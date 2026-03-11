@@ -226,7 +226,7 @@ done
 ```bash
 git worktree list
 git branch --list 'kf/*'
-.agent/kf/bin/kf-merge.py-lock.py status 2>/dev/null
+.agent/kf/bin/kf-merge-lock.py status 2>/dev/null
 ```
 
 | Check | Severity | Description |
@@ -258,7 +258,7 @@ cat .agent/kf/config.yaml
 ### Dimension 7: Merge Lock State
 
 ```bash
-.agent/kf/bin/kf-merge.py-lock.py status
+.agent/kf/bin/kf-merge-lock.py status
 ```
 
 | Check | Severity | Description |
@@ -309,7 +309,7 @@ These are aggregate checks that combine findings from earlier dimensions. No sep
 # (If CLI supports it — otherwise edit deps.yaml directly)
 
 # Use kf-merge-lock release for stale locks
-.agent/kf/bin/kf-merge.py-lock.py release
+.agent/kf/bin/kf-merge-lock.py release
 
 # Use git worktree prune for dead worktrees
 git worktree prune

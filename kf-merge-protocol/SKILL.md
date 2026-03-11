@@ -85,7 +85,7 @@ Uses `kf-merge-lock` which supports dual-mode acquisition:
 - **mkdir mode** — fallback when orchestrator is unreachable. Uses `$(git rev-parse --git-common-dir)/merge.lock`.
 
 ```bash
-.agent/kf/bin/kf-merge.py-lock.py acquire --timeout <seconds>
+.agent/kf/bin/kf-merge-lock.py acquire --timeout <seconds>
 ```
 
 - `--timeout 0` — fail immediately if held (for architects, non-blocking)
@@ -97,7 +97,7 @@ Uses `kf-merge-lock` which supports dual-mode acquisition:
 
 Keeps the lock alive during the merge window:
 ```bash
-while true; do .agent/kf/bin/kf-merge.py-lock.py heartbeat; sleep 30; done &
+while true; do .agent/kf/bin/kf-merge-lock.py heartbeat; sleep 30; done &
 ```
 
 ### Step 5 — Rebase onto primary branch
