@@ -21,67 +21,30 @@ Display the current status of the Kiloforge project, including overall progress,
 
 ## Instructions
 
-### Step 1 — Run pre-flight check
+### Step 1 — Run the status script
+
+A single command returns everything:
 
 ```bash
-eval "$(.agent/kf/bin/kf-preflight.py)"
+.agent/kf/bin/kf-status.py
 ```
 
-This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
-
-### Step 2 — Show current workers (instant)
-
-Query worktree claim locks for an instant snapshot of who is working on what:
-
-```bash
-.agent/kf/bin/kf-claim.py list
-```
-
-This reads filesystem-based claim locks (no git or network operations) and outputs a table:
-
-```
-WORKTREE             TRACK                                              HOLDER               STARTED
-worker-1             auth_20250115100000Z                               worker-1             2025-01-15T10:30:00Z
-worker-2             search_20250115100001Z                             worker-2             2025-01-15T10:31:00Z
-
-2 active claim(s)
-```
-
-If no claims are active, it prints `(no active claims)` — skip this section in the output.
-
-Display this as a **Current Workers** section at the top of the status report, before the track summary. This gives an immediate picture of parallel activity without waiting for heavier git operations.
-
-### Step 3 — Run the status command
-
-The `kf-track status` command generates the full factual status report:
-
-```bash
-.agent/kf/bin/kf-track.py status --ref ${PRIMARY_BRANCH}
-```
-
-This outputs all **data** sections:
+This combines in one output:
+- **Current Workers** — instant snapshot from worktree claim locks (who is working on what)
 - **Overall Progress** — track counts, task counts, progress bar
-- **Active Tracks** — table with per-track task completion, deps count, and enriched status labels:
-  - `CLAIMED` — in-progress tracks (actively being worked by a developer)
-  - `AVAILABLE` — pending tracks with all dependencies satisfied (ready to claim)
-  - `BLOCKED` — pending tracks with unmet dependencies
-  - **Deps column** — shows `N/M met` or `no deps` per track
+- **Active Tracks** — table with per-track task completion, deps, and enriched status labels (CLAIMED, AVAILABLE, BLOCKED)
 - **Current Focus** — claimed tracks with next pending task
 - **Ready to Start** — pending tracks with all dependencies satisfied
-- **Conflict Risk** — active conflict pairs from `conflicts.yaml`, showing risk level and notes (only appears when active pairs exist)
-- **Blocked** — pending tracks with unmet dependencies and their current statuses
+- **Conflict Risk** — active conflict pairs (only if any exist)
+- **Blocked** — tracks with unmet dependencies
+- **Dispatch Recommendations** — prioritized worker assignments (only if worktrees exist)
 
-### Step 4 — Assess and recommend
+### Step 2 — Assess and recommend
 
-The CLI outputs are factual. After presenting them, add brief **assessment**:
+The script output is factual. After presenting it, add brief **assessment**:
 
 1. **Bottleneck analysis** — If many tracks are blocked on the same dependency, call it out
-2. **Dispatch recommendations** — If developer worktrees exist, run dispatch to get prioritized assignments for idle workers:
-   ```bash
-   .agent/kf/bin/kf-dispatch.py --ref ${PRIMARY_BRANCH}
-   ```
-   This computes priority scores (unblock factor, conflict avoidance, type diversity) and matches idle workers to available tracks. Include the dispatch output as concrete next-action recommendations. If no worktrees exist, skip dispatch.
-3. **General recommendations** — Based on the state:
+2. **General recommendations** — Based on the state:
    - No pending tracks → suggest `/kf-architect` to create new work
    - Many completed tracks not archived → suggest `/kf-bulk-archive`
    - In-progress tracks with low progress → note they may be stalled
@@ -91,15 +54,15 @@ The CLI outputs are factual. After presenting them, add brief **assessment**:
 For a specific track, use:
 
 ```bash
-.agent/kf/bin/kf-track.py show {trackId} --ref ${PRIMARY_BRANCH}
-.agent/kf/bin/kf-track.py progress {trackId} --ref ${PRIMARY_BRANCH}
+.agent/kf/bin/kf-track.py show {trackId}
+.agent/kf/bin/kf-track-content.py progress {trackId}
 ```
 
 ## Error States
 
 ### Kiloforge Not Initialized
 
-If `kf-track status` fails with "No tracks.yaml found":
+If `kf-status` fails:
 
 ```
 ERROR: Kiloforge not initialized.
