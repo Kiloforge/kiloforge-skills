@@ -1,11 +1,16 @@
 ---
 name: kf-bin
-description: Kiloforge CLI tools. NOT user-invocable — installed to .agent/kf/bin/ by kf-setup.
+description: List available Kiloforge CLI tools with usage and descriptions. Only required when running as a Kiloforge agent.
 ---
 
 # Kiloforge CLI Tools
 
-This directory contains the CLI tools installed to `.agent/kf/bin/` during `/kf-setup`. These are internal tools used by other kf-* skills — not invoked directly by users.
+Display available CLI tools installed to `.agent/kf/bin/` during project setup.
+
+## Use this skill when
+
+- You want to see what CLI tools are available
+- You need usage help for a specific tool
 
 ## Tools
 
@@ -18,3 +23,13 @@ This directory contains the CLI tools installed to `.agent/kf/bin/` during `/kf-
 | `kf-merge` | sh | Unified merge protocol (lock, rebase, verify, merge, release) |
 | `kf-merge-lock` | bash | Cross-worktree merge lock (acquire, release, heartbeat) |
 | `kf-worktree-env` | bash | Detect git worktree context and export env vars |
+
+## Instructions
+
+When invoked, display the tools table above. If a tool name is provided as an argument, show its usage by running:
+
+```bash
+.agent/kf/bin/{tool} --help
+```
+
+If tools are not installed, suggest running `/kf-setup`.
