@@ -355,32 +355,33 @@ Options:
 
 **CRITICAL: Wait for explicit user approval before creating any track files.**
 
-### Step 10 — Create approved tracks
+### Step 10 — Create approved tracks (two-phase commit)
+
+Track creation is split into two commits to minimize lock contention:
+
+#### 10a. Commit track content (no lock needed)
+
+Track directories are unique per track — collisions are effectively impossible. Create content freely:
 
 For each approved track:
 
 1. **Create track.yaml** using CLI or direct write (see Step 8)
-2. **Register in tracks.yaml** using the `kf-track` CLI:
-   ```bash
-   .agent/kf/bin/kf-track add {trackId} --title "{title}" --type {type} --deps "{dep1,dep2}"
-   ```
-   This updates both `tracks.yaml` (registry) and `tracks/deps.yaml` (dependency graph) in one operation.
-3. **Register conflict risk pairs** (if identified during cross-track analysis):
-   ```bash
-   .agent/kf/bin/kf-track conflicts add {trackId-a} {trackId-b} {high|medium|low} "reason for conflict risk"
-   ```
-   Only add pairs where the architect has identified genuine conflict risk. No need to add pairs for tracks that don't touch overlapping files.
-4. Commit the new track artifacts:
-   ```bash
-   git add .agent/kf/tracks/{trackId}/ .agent/kf/tracks.yaml .agent/kf/tracks/deps.yaml .agent/kf/tracks/conflicts.yaml
-   git commit -m "chore: add track {trackId} — {title}"
-   ```
+
+Commit track content only (no registry files):
+```bash
+git add .agent/kf/tracks/{trackId}/
+git commit -m "chore: add track content {trackId} — {title}"
+```
 
 If multiple tracks were approved, commit them together:
 ```bash
-git add .agent/kf/tracks/ .agent/kf/tracks.yaml .agent/kf/tracks/deps.yaml .agent/kf/tracks/conflicts.yaml
-git commit -m "chore: add {N} tracks from prompt — {brief summary}"
+git add .agent/kf/tracks/*/track.yaml
+git commit -m "chore: add {N} track content from prompt — {brief summary}"
 ```
+
+#### 10b. Update registry (under lock)
+
+The shared registry files (`tracks.yaml`, `deps.yaml`, `conflicts.yaml`) require the merge lock to prevent conflicts. This is handled in Phase 5.
 
 Note: `index.md` is no longer maintained as a file. Agents use `kf-track index` to generate the project index on demand.
 
@@ -445,63 +446,42 @@ multi-dep-track_20260309000002Z:
 
 ## Phase 5: Merge to Primary Branch
 
-The architect must merge its track artifacts to the primary branch so that developer workers can see and claim them. This is a **metadata merge** — no test verification required since only `.agent/kf/` files are changed.
+The architect must merge its track artifacts to the primary branch so that developer workers can see and claim them. This uses the **metadata merge** protocol — no test verification needed.
+
+Track content (unique per-track directories) is committed before acquiring the lock (Step 10a). The lock is only held while updating shared registry files and merging.
 
 For the full merge protocol details, see `kf-merge-protocol/SKILL.md`.
 
-### Step 11 — Pre-merge: Reconcile track state
+### Step 11 — Merge via kf-merge
 
-Before merging, check if the primary branch has advanced since we synced (other generators or developers may have merged):
-
-```bash
-git log --oneline ${PRIMARY_BRANCH}..HEAD   # our new commits
-git log --oneline HEAD..${PRIMARY_BRANCH}   # commits on primary branch we don't have
-```
-
-If the primary branch has advanced:
-
-1. **Check for track state conflicts.** Read the current `tracks.yaml` from the primary branch:
-   ```bash
-   .agent/kf/bin/kf-track list --active --json
-   # or from the primary branch directly:
-   git show ${PRIMARY_BRANCH}:.agent/kf/tracks.yaml
-   ```
-
-2. **Identify tracks whose state changed on the primary branch** since we started:
-   - Tracks that moved from `"pending"` to `"in-progress"` or `"completed"` (claimed or completed by a developer)
-   - New tracks added by another generator
-   - Tracks that were archived or removed
-
-3. **Our merge only adds new tracks** — it should not modify the status of existing tracks. If our `tracks.yaml` edits conflict with the primary branch's state, the primary branch's state wins for existing tracks. Only our new track entries should be added.
-
-### Step 12 — Merge to primary branch
-
-Use the shared `kf-merge` script for the full lock → rebase → merge → release protocol. The architect performs a **metadata merge** (no verification needed):
+The `kf-merge` script with `--registry-cmd` handles the full protocol: lock → rebase → run registry command → commit → merge → release.
 
 ```bash
-# Build the reapply command for all new tracks in this batch
-REAPPLY_CMD=""
+# Build the registry command for all new tracks in this batch
+REGISTRY_CMD=""
 for track in {list of new track IDs}; do
-  REAPPLY_CMD="$REAPPLY_CMD; .agent/kf/bin/kf-track add $track --title '...' --type ..."
+  REGISTRY_CMD="$REGISTRY_CMD; .agent/kf/bin/kf-track add $track --title '...' --type ... --deps '...'"
 done
+# Add conflict pairs if identified
+REGISTRY_CMD="$REGISTRY_CMD; .agent/kf/bin/kf-track conflicts add {a} {b} {risk} 'reason'"
 
 .agent/kf/bin/kf-merge \
   --holder "$(basename $(pwd))" \
   --timeout 0 \
-  --reapply "$REAPPLY_CMD"
+  --registry-cmd "$REGISTRY_CMD"
 ```
+
+The `--registry-cmd` flag tells `kf-merge` to run the registry update commands **after rebase** (when the working tree matches the primary branch + track content), then commit the registry changes before merging. This ensures registry updates are always applied to the latest state.
 
 **Exit code 2** means the lock is held — report and **HALT** (wait for other worker to finish, then retry).
 
 **Exit code 1** means the merge failed — report and **HALT**.
 
-See `kf-merge-protocol/SKILL.md` for the full protocol details, conflict resolution strategy, and safety rules.
-
 ---
 
 ## Phase 6: Handoff Summary
 
-### Step 13 — Output handoff information
+### Step 12 — Output handoff information
 
 ```
 ================================================================================

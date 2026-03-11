@@ -25,11 +25,23 @@ All merge operations use `.agent/kf/bin/kf-merge`, which encapsulates the full p
 
 Used by **kf-architect** and **kf-report** — changes are limited to `.agent/kf/` files (track definitions, reports). No test/build verification is needed.
 
+Track content (unique per-track directories) is committed **before** acquiring the lock. The lock is only held while updating shared registry files (`tracks.yaml`, `deps.yaml`, `conflicts.yaml`) and merging. This minimizes lock contention and prevents registry conflicts.
+
 ```bash
-.agent/kf/bin/kf-merge --holder architect-1 --timeout 0
+# Architect: commit track content first (no lock), then merge with registry update
+.agent/kf/bin/kf-merge --holder architect-1 --timeout 0 \
+  --registry-cmd ".agent/kf/bin/kf-track add X --title '...' --type feature"
 ```
 
-**Steps:** lock → rebase → resolve state conflicts → merge → release
+**Steps:** lock → rebase → registry update → commit → merge → release
+
+For **kf-report** (no registry update needed):
+
+```bash
+.agent/kf/bin/kf-merge --holder report-1 --timeout 0
+```
+
+**Steps:** lock → rebase → merge → release
 
 ### 2. Implementation Merge (with verification)
 
@@ -115,7 +127,17 @@ Then re-apply via CLI (the `--reapply` command):
 
 **For non-state file conflicts** (source code): release lock, report, HALT.
 
-### Step 6 — Post-rebase verification (implementation merge only)
+### Step 6 — Registry update (metadata merge only)
+
+If `--registry-cmd` is provided, run the command after rebase. This updates shared registry files (`tracks.yaml`, `deps.yaml`, `conflicts.yaml`) against the latest primary branch state, then commits the changes. Since the rebase has already brought in all other workers' changes, the registry update is conflict-free.
+
+```bash
+eval "$REGISTRY_CMD"
+git add .agent/kf/tracks.yaml .agent/kf/tracks/deps.yaml .agent/kf/tracks/conflicts.yaml
+git commit -m "chore(kf): update track registry"
+```
+
+### Step 7 — Post-rebase verification (implementation merge only)
 
 Run the project's verification suite:
 ```bash
@@ -124,7 +146,7 @@ make test && make build && make lint
 
 On failure: release lock, report, HALT.
 
-### Step 7 — Fast-forward merge
+### Step 8 — Fast-forward merge
 
 ```bash
 git -C {primary-worktree} merge {current-branch} --ff-only
@@ -132,7 +154,7 @@ git -C {primary-worktree} merge {current-branch} --ff-only
 
 Only fast-forward merges are allowed. If the merge cannot fast-forward, something went wrong during rebase — release lock and HALT.
 
-### Step 8 — Release lock and cleanup
+### Step 9 — Release lock and cleanup
 
 1. Stop heartbeat
 2. Release lock via `kf-merge-lock release`
@@ -149,6 +171,7 @@ Only fast-forward merges are allowed. If the merge cannot fast-forward, somethin
 | `--verify CMD` | (none) | Post-rebase verification command |
 | `--conflict-strategy` | theirs | `theirs` or `ours` for track state conflicts |
 | `--reapply CMD` | (none) | Command to re-apply track state after conflict resolution |
+| `--registry-cmd CMD` | (none) | Registry update command to run after rebase, before merge. Auto-staged and committed. Used by architects to update shared registry files against latest state. |
 | `--cleanup-branch NAME` | (none) | Branch to delete after successful merge |
 
 ## Exit Codes
