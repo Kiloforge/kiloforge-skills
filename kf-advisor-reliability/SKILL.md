@@ -52,14 +52,13 @@ ACTIVE ROLE: kf-reliability — skill at ~/.claude/skills/kf-reliability/SKILL.m
 
 This advisor runs inside an existing, initialized Kiloforge project. It uses the project's working directory and existing artifacts — it does NOT create a new project.
 
-### Step 1 — Verify project context
+### Step 1 — Run pre-flight check
 
 ```bash
-# Check kiloforge is initialized
-ls .agent/kf/product.yaml .agent/kf/tech-stack.yaml .agent/kf/workflow.yaml 2>/dev/null
+eval "$(.agent/kf/bin/kf-preflight)"
 ```
 
-If missing, suggest `/kf-setup` and **HALT**.
+This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
 
 ### Step 2 — Load project context
 

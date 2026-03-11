@@ -27,16 +27,11 @@ Execute tasks from a track's implementation plan, following the workflow rules d
 
 ## Pre-flight Checks
 
-1. **Resolve primary branch:**
+1. **Run pre-flight check:**
    ```bash
-   PRIMARY_BRANCH=$(.agent/kf/bin/kf-primary-branch)
+   eval "$(.agent/kf/bin/kf-preflight)"
    ```
-
-2. Verify Kiloforge is initialized (read from primary branch using `--ref ${PRIMARY_BRANCH}`):
-   - Check `.agent/kf/product.yaml` exists
-   - Check `.agent/kf/workflow.yaml` exists
-   - Check `.agent/kf/tracks.yaml` exists
-   - If missing: Display error and suggest running `/kf-setup` first
+   This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
 
 2. Load workflow configuration:
    - Read `.agent/kf/workflow.yaml`

@@ -28,9 +28,11 @@ Revert changes by logical work unit with full git awareness. Supports reverting 
 
 ## Pre-flight Checks
 
-1. Verify Kiloforge is initialized:
-   - Check `.agent/kf/tracks.yaml` exists
-   - If missing: Display error and suggest running `/kf-setup` first
+1. Run pre-flight check:
+   ```bash
+   eval "$(.agent/kf/bin/kf-preflight)"
+   ```
+   This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
 
 2. Verify git repository:
    - Run `git status` to confirm git repo

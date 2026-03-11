@@ -58,24 +58,21 @@ git worktree list
 - Record the **primary branch worktree path** from `git worktree list` — needed for merge operations
 - Record the **home branch** (the `worker-*` branch) — to return to after merge
 
-**Resolve the primary branch** from `.agent/kf/config.yaml`:
-
-```bash
-PRIMARY_BRANCH=$(.agent/kf/bin/kf-primary-branch)
-echo "Primary branch: $PRIMARY_BRANCH"
-```
-
-Record `PRIMARY_BRANCH` for all subsequent operations. If `config.yaml` doesn't exist or has no `primary_branch`, default to `main`.
-
-**IMPORTANT: Your home branch is almost always stale.** Other architects and developers merge to the primary branch continuously. Do NOT use `git reset --hard` to sync — this destroys the home branch state unexpectedly.
-
-Instead, **always read track state from the primary branch** using `--ref ${PRIMARY_BRANCH}` on CLI commands or `git show ${PRIMARY_BRANCH}:<path>` for file reads. Implementation branches are always created from `${PRIMARY_BRANCH}` directly.
-
 ---
 
 ## Phase 1: Validation
 
-### Step 1 — Parse track ID
+### Step 1 — Run pre-flight check
+
+```bash
+eval "$(.agent/kf/bin/kf-preflight)"
+```
+
+This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
+
+**IMPORTANT: Your home branch is almost always stale.** Always read track state from the primary branch using `--ref ${PRIMARY_BRANCH}` on CLI commands or `git show ${PRIMARY_BRANCH}:<path>` for file reads. Implementation branches are always created from `${PRIMARY_BRANCH}` directly. Do NOT use `git reset --hard`.
+
+### Step 2 — Parse track ID
 
 If no argument was provided:
 
@@ -88,17 +85,6 @@ To see available tracks, run `.agent/kf/bin/kf-track list` or /kf-architect to c
 ```
 
 **HALT.**
-
-### Step 2 — Verify Kiloforge is initialized
-
-Check these files exist (read from primary branch):
-```bash
-git show ${PRIMARY_BRANCH}:.agent/kf/product.yaml > /dev/null 2>&1
-git show ${PRIMARY_BRANCH}:.agent/kf/workflow.yaml > /dev/null 2>&1
-git show ${PRIMARY_BRANCH}:.agent/kf/tracks.yaml > /dev/null 2>&1
-```
-
-If missing: Display error and suggest `/kf-setup`. **HALT.**
 
 ### Step 3 — Validate track exists and is claimable
 

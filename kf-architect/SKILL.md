@@ -54,31 +54,19 @@ git worktree list
 - If not on a `architect-*` branch, warn but continue (the user may be transitioning)
 - Record the **primary branch worktree path** from `git worktree list` — needed for merge operations
 
-### Step 0a — Resolve primary branch
-
-```bash
-PRIMARY_BRANCH=$(.agent/kf/bin/kf-primary-branch)
-echo "Primary branch: $PRIMARY_BRANCH"
-```
-
-Record `PRIMARY_BRANCH` for all subsequent operations. Use `${PRIMARY_BRANCH}` everywhere a branch reference is needed — never hardcode `main`.
-
-**All track state reads should come from the primary branch** (via `git show ${PRIMARY_BRANCH}:<path>`) to see the latest committed state, not the local working tree which may be stale.
-
 ---
 
 ## Phase 1: Pre-flight & Context Loading
 
-### Step 1 — Verify Kiloforge is initialized
+### Step 1 — Run pre-flight check
 
-Check that these files exist (read from the primary branch):
 ```bash
-git show ${PRIMARY_BRANCH}:.agent/kf/product.yaml > /dev/null 2>&1
-git show ${PRIMARY_BRANCH}:.agent/kf/tech-stack.yaml > /dev/null 2>&1
-git show ${PRIMARY_BRANCH}:.agent/kf/tracks.yaml > /dev/null 2>&1
+eval "$(.agent/kf/bin/kf-preflight)"
 ```
 
-If missing: Display error and suggest running `/kf-setup` first. **HALT.**
+This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
+
+Use `${PRIMARY_BRANCH}` everywhere a branch reference is needed — never hardcode `main`. All track state reads should come from the primary branch (via `git show ${PRIMARY_BRANCH}:<path>`) to see the latest committed state.
 
 ### Step 2 — Load project context
 

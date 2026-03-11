@@ -26,11 +26,13 @@ Swarm dispatcher that reviews project state (worktrees, active tracks, dependenc
 
 ## Instructions
 
-### Step 1 — Resolve primary branch
+### Step 1 — Run pre-flight check
 
 ```bash
-PRIMARY_BRANCH=$(.agent/kf/bin/kf-primary-branch)
+eval "$(.agent/kf/bin/kf-preflight)"
 ```
+
+This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
 
 ### Step 2 — Scan worktree state
 

@@ -28,12 +28,11 @@ Create a new track (feature, bug fix, chore, or refactor) with a detailed specif
 
 ## Pre-flight Checks
 
-1. Verify Kiloforge is initialized:
-   - Check `.agent/kf/product.yaml` exists
-   - Check `.agent/kf/tech-stack.yaml` exists
-   - Check `.agent/kf/workflow.yaml` exists
-   - Check `.agent/kf/tracks.yaml` exists
-   - If missing: Display error and suggest running `/kf-setup` first
+1. Run pre-flight check:
+   ```bash
+   eval "$(.agent/kf/bin/kf-preflight)"
+   ```
+   This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
 
 2. Load context files:
    - Read `.agent/kf/product.yaml` for product context

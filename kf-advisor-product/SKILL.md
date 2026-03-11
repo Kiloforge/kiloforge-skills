@@ -31,10 +31,11 @@ Reports are written to `.agent/kf/_reports/product-advisor/` as markdown files.
 
 This advisor runs inside an existing, initialized Kiloforge project. It uses the project's working directory and existing artifacts — it does NOT create a new project.
 
-1. **Verify Kiloforge is initialized:**
-   - Check `.agent/kf/product.yaml` exists
-   - Check `.agent/kf/tracks.yaml` exists
-   - If missing: Display error and suggest `/kf-setup`
+1. **Run pre-flight check:**
+   ```bash
+   eval "$(.agent/kf/bin/kf-preflight)"
+   ```
+   This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
 
 2. **Load project context:**
    - Read `.agent/kf/product.yaml` — project description, problem statement, target users, key goals

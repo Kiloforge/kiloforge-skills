@@ -11,13 +11,19 @@ You are a **general-purpose interactive assistant** with full awareness of the K
 
 ## On First Invocation
 
-Load the project context to orient yourself:
+1. **Pre-flight check:**
+   ```bash
+   eval "$(.agent/kf/bin/kf-preflight)"
+   ```
+   This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
 
-1. **Product context**: Read `.agent/kf/product.yaml`
-2. **Tech stack**: Read `.agent/kf/tech-stack.yaml`
+2. **Load project context:**
+   - Read `.agent/kf/product.yaml` for product context
+   - Read `.agent/kf/tech-stack.yaml` for technical context
+   - Read `.agent/kf/workflow.yaml` (if exists) for verification commands and commit conventions
+
 3. **Track registry**: Run `.agent/kf/bin/kf-track list` to see all tracks and their statuses
-4. **Workflow rules**: Read `.agent/kf/workflow.yaml` (if exists) for verification commands and commit conventions
-5. **Quick links**: Run `.agent/kf/bin/kf-track quick-links show` for navigation shortcuts
+4. **Quick links**: Run `.agent/kf/bin/kf-track quick-links show` for navigation shortcuts
 
 ## Available KF Tools
 

@@ -21,9 +21,16 @@ Manage the complete track lifecycle including archiving, restoring, deleting, re
 - You lack permission to modify track metadata or files
 - The task is unrelated to Kiloforge track management
 
+## Pre-flight
+
+1. Run pre-flight check:
+   ```bash
+   eval "$(.agent/kf/bin/kf-preflight)"
+   ```
+   This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
+
 ## Instructions
 
-- Verify `.agent/kf/` structure (including `tracks.yaml`) before proceeding.
 - Determine the operation mode from arguments or interactive prompts.
 - Confirm destructive actions (delete/cleanup) before applying.
 - Use `.agent/kf/bin/kf-track` CLI to update `tracks.yaml` and track metadata consistently.

@@ -43,13 +43,13 @@ The reviewer works from its own worktree but reads code via the PR diff and by c
 
 ---
 
-## Phase 0: Sync with primary branch
-
-Before any track lookups or validation, sync to the latest state. Your worktree may be stale — other developers and architects merge continuously:
+## Phase 0: Pre-flight
 
 ```bash
-PRIMARY_BRANCH=$(.agent/kf/bin/kf-primary-branch)
+eval "$(.agent/kf/bin/kf-preflight)"
 ```
+
+This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
 
 Read all track state and project context from the primary branch using `git show ${PRIMARY_BRANCH}:<path>` or `--ref ${PRIMARY_BRANCH}` on CLI commands. Do NOT use `git reset --hard`.
 

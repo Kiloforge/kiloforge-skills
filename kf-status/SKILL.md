@@ -21,13 +21,13 @@ Display the current status of the Kiloforge project, including overall progress,
 
 ## Instructions
 
-### Step 1 — Resolve primary branch
-
-Read the primary branch from config:
+### Step 1 — Run pre-flight check
 
 ```bash
-PRIMARY_BRANCH=$(.agent/kf/bin/kf-primary-branch)
+eval "$(.agent/kf/bin/kf-preflight)"
 ```
+
+This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
 
 ### Step 2 — Run the status command
 

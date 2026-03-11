@@ -22,6 +22,14 @@ Remove archived (`_archive/`) and completed track directories from the working t
 
 ## Instructions
 
+### Pre-flight
+
+Run pre-flight check:
+```bash
+eval "$(.agent/kf/bin/kf-preflight)"
+```
+This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
+
 ### Step 1: Identify compactable tracks
 
 Scan **both** sources of completed/archived tracks:

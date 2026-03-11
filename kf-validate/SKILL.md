@@ -32,12 +32,13 @@ Validates the structure, completeness, and consistency of all Kiloforge project 
 
 ## Instructions
 
-### Step 1 — Resolve primary branch
+### Step 1 — Run pre-flight check
 
 ```bash
-PRIMARY_BRANCH=$(.agent/kf/bin/kf-primary-branch)
-echo "Primary branch: $PRIMARY_BRANCH"
+eval "$(.agent/kf/bin/kf-preflight)"
 ```
+
+This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
 
 ### Step 2 — Validate directory structure
 

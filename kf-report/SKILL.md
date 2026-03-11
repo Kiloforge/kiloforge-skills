@@ -27,18 +27,15 @@ Reports are written to `.agent/kf/_reports/` as markdown files.
 
 ## Pre-flight Checks
 
-1. **Resolve primary branch:**
+1. **Run pre-flight check:**
    ```bash
-   PRIMARY_BRANCH=$(.agent/kf/bin/kf-primary-branch)
+   eval "$(.agent/kf/bin/kf-preflight)"
    ```
+   This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
+
    Read all track state and project metadata from the primary branch using `git show ${PRIMARY_BRANCH}:<path>` or `--ref ${PRIMARY_BRANCH}` on CLI commands. Do NOT use `git reset --hard`.
 
-2. Verify Kiloforge is initialized:
-   - Check `.agent/kf/product.yaml` exists
-   - Check `.agent/kf/tracks.yaml` exists
-   - If missing: Display error and suggest running `/kf-setup` first
-
-3. Verify git repository:
+2. Verify git repository:
    - Run `git rev-parse --is-inside-work-tree`
    - If not a git repo: Display error — git history is required for timeline and velocity
 

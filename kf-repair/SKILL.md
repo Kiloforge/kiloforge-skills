@@ -92,24 +92,15 @@ Then proceed to the full audit.
 
 ## Phase 1: Pre-flight
 
-### Step 1 — Resolve primary branch
+### Step 1 — Run pre-flight check
 
 ```bash
-PRIMARY_BRANCH=$(.agent/kf/bin/kf-primary-branch)
-echo "Primary branch: $PRIMARY_BRANCH"
+eval "$(.agent/kf/bin/kf-preflight)"
 ```
 
-### Step 2 — Verify Kiloforge is initialized
+This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
 
-Check these files exist:
-```bash
-git show ${PRIMARY_BRANCH}:.agent/kf/product.yaml > /dev/null 2>&1
-git show ${PRIMARY_BRANCH}:.agent/kf/tracks.yaml > /dev/null 2>&1
-```
-
-If missing: suggest `/kf-setup` and **HALT**.
-
-### Step 3 — Load data files
+### Step 2 — Load data files
 
 Read from the primary branch to ensure freshness:
 
@@ -120,7 +111,7 @@ git show ${PRIMARY_BRANCH}:.agent/kf/tracks/conflicts.yaml > /tmp/kf-repair-conf
 git show ${PRIMARY_BRANCH}:.agent/kf/config.yaml > /tmp/kf-repair-config.yaml 2>/dev/null
 ```
 
-### Step 4 — Determine audit scope
+### Step 3 — Determine audit scope
 
 Parse arguments to decide which dimensions to audit. Default is all dimensions.
 
