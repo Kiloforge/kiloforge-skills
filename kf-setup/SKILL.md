@@ -439,6 +439,7 @@ This installs the following tools:
 | `kf-track-content` | python3 | Track content management (init, show, spec, plan, task progress) |
 | `kf-merge` | sh | Unified merge protocol (lock, rebase, verify, merge, release) |
 | `kf-merge-lock` | bash | Cross-worktree merge lock (acquire, release, heartbeat) |
+| `kf-dispatch` | python3 | Compute dispatch assignments for idle developer worktrees |
 | `kf-worktree-env` | bash | Detect git worktree context and export env vars |
 
 **If `$SKILL_DIR` is not available** (e.g., running setup outside of the skill framework), prompt the user:
@@ -504,6 +505,7 @@ When all files are created:
    - .agent/kf/bin/kf-track-content
    - .agent/kf/bin/kf-merge
    - .agent/kf/bin/kf-merge-lock
+   - .agent/kf/bin/kf-dispatch
    - .agent/kf/bin/kf-worktree-env
    - .agent/kf/code_styleguides/[languages]
 

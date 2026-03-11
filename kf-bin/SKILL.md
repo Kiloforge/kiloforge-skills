@@ -22,6 +22,7 @@ Display available CLI tools installed to `.agent/kf/bin/` during project setup.
 | `kf-track-content` | python3 | Track content management (init, show, spec, plan, task progress) |
 | `kf-merge` | sh | Unified merge protocol (lock, rebase, verify, merge, release) |
 | `kf-merge-lock` | bash | Cross-worktree merge lock (acquire, release, heartbeat) |
+| `kf-dispatch` | python3 | Compute dispatch assignments for idle developer worktrees |
 | `kf-worktree-env` | bash | Detect git worktree context and export env vars |
 
 ## Instructions
