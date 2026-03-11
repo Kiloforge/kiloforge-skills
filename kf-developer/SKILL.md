@@ -34,8 +34,8 @@ ACTIVE ROLE: kf-developer — track {trackId} — skill at ~/.claude/skills/kf-d
 This line is designed to survive compaction summaries. If you see it in your context but can no longer recall the full workflow, re-read the skill file before continuing. For project-specific values, re-read only what you need:
 
 - Verification commands: `.agent/kf/workflow.yaml`
-- Track list/statuses: `.agent/kf/bin/kf-track list`
-- Track progress: `.agent/kf/bin/kf-track-content progress {trackId}`
+- Track list/statuses: `.agent/kf/bin/kf-track.py list`
+- Track progress: `.agent/kf/bin/kf-track.py-content.py progress {trackId}`
 - Main worktree path: `git worktree list`
 
 ---
@@ -65,7 +65,7 @@ git worktree list
 ### Step 1 — Run pre-flight check
 
 ```bash
-eval "$(.agent/kf/bin/kf-preflight)"
+eval "$(.agent/kf/bin/kf-preflight.py)"
 ```
 
 This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
@@ -81,7 +81,7 @@ ERROR: Track ID required.
 
 Usage: /kf-developer <track-id>
 
-To see available tracks, run `.agent/kf/bin/kf-track list` or /kf-architect to create new ones.
+To see available tracks, run `.agent/kf/bin/kf-track.py list` or /kf-architect to create new ones.
 ```
 
 **HALT.**
@@ -90,14 +90,14 @@ To see available tracks, run `.agent/kf/bin/kf-track list` or /kf-architect to c
 
 1. **Check track exists and get its status:**
    ```bash
-   .agent/kf/bin/kf-track get {trackId}
+   .agent/kf/bin/kf-track.py get {trackId}
    ```
    If not found (exits non-zero):
    ```
    ERROR: Track not found — {trackId}
 
    Available tracks:
-   {output from `.agent/kf/bin/kf-track list --active`}
+   {output from `.agent/kf/bin/kf-track.py list --active`}
    ```
    **HALT.**
 
@@ -134,7 +134,7 @@ To see available tracks, run `.agent/kf/bin/kf-track list` or /kf-architect to c
 
    Run the dependency check:
    ```bash
-   .agent/kf/bin/kf-track deps check {trackId}
+   .agent/kf/bin/kf-track.py deps check {trackId}
    ```
 
    If the command exits non-zero (BLOCKED), it will list unmet dependencies:
@@ -217,15 +217,15 @@ Read `.agent/kf/workflow.yaml` and parse:
 Load track context via CLI (now from the working tree, which is based on the primary branch):
 ```bash
 # Full track content
-.agent/kf/bin/kf-track-content show {trackId}
+.agent/kf/bin/kf-track.py-content.py show {trackId}
 
 # Or section by section for large tracks:
-.agent/kf/bin/kf-track-content show {trackId} --section spec
-.agent/kf/bin/kf-track-content show {trackId} --section plan
-.agent/kf/bin/kf-track-content progress {trackId}
+.agent/kf/bin/kf-track.py-content.py show {trackId} --section spec
+.agent/kf/bin/kf-track.py-content.py show {trackId} --section plan
+.agent/kf/bin/kf-track.py-content.py progress {trackId}
 
 # Check conflict risk with other active tracks
-.agent/kf/bin/kf-track conflicts list {trackId}
+.agent/kf/bin/kf-track.py conflicts list {trackId}
 ```
 
 Also read project context:
@@ -244,8 +244,8 @@ Follow the exact same implementation workflow as `/kf-implement`:
 - Execute each task in the plan sequentially
 - Follow TDD workflow if configured in `workflow.yaml`
 - Commit after each task completion using the commit strategy from `workflow.yaml`
-- Update task completion via CLI: `.agent/kf/bin/kf-track-content task {trackId} <phase>.<task> --done`
-- Check progress: `.agent/kf/bin/kf-track-content progress {trackId}`
+- Update task completion via CLI: `.agent/kf/bin/kf-track.py-content.py task {trackId} <phase>.<task> --done`
+- Check progress: `.agent/kf/bin/kf-track.py-content.py progress {trackId}`
 - Run phase verification at the end of each phase
 - **Do NOT pause between phases** — proceed continuously through all phases without waiting for user approval
 
@@ -255,9 +255,9 @@ After all tasks are done, update all tracking files and commit:
 
 1. **Update track status** using `kf-track` (updates `tracks.yaml`, prunes `deps.yaml`, and cleans `conflicts.yaml` automatically):
    ```bash
-   .agent/kf/bin/kf-track update {trackId} --status completed
+   .agent/kf/bin/kf-track.py update {trackId} --status completed
    ```
-2. Verify all tasks are marked done: `.agent/kf/bin/kf-track-content progress {trackId}`
+2. Verify all tasks are marked done: `.agent/kf/bin/kf-track.py-content.py progress {trackId}`
 
 ```bash
 git add .agent/kf/tracks.yaml .agent/kf/tracks/deps.yaml .agent/kf/tracks/conflicts.yaml .agent/kf/tracks/{trackId}/
@@ -313,11 +313,11 @@ If verification fails, do **not** attempt to merge. Fix issues first.
 ```bash
 VERIFY_CMD="<commands from workflow.yaml>"
 
-.agent/kf/bin/kf-merge \
+.agent/kf/bin/kf-merge.py \
   --holder "$(basename $(pwd))" \
   --timeout 300 \
   --verify "$VERIFY_CMD" \
-  --reapply ".agent/kf/bin/kf-track update {trackId} --status completed" \
+  --reapply ".agent/kf/bin/kf-track.py update {trackId} --status completed" \
   --cleanup-branch kf/{type}/{trackId}
 ```
 
@@ -393,7 +393,7 @@ Developer is ready for next track.
 
 ## Merge Lock Modes
 
-The merge lock is managed by the shared `.agent/kf/bin/kf-merge-lock` helper, which supports dual-mode acquisition:
+The merge lock is managed by the shared `.agent/kf/bin/kf-merge.py-lock.py` helper, which supports dual-mode acquisition:
 
 1. **HTTP mode** — Preferred when kiloforge orchestrator is running. Uses TTL (120s), heartbeat (every 30s), and server-side long-poll for `--auto-merge`. Crash recovery via automatic TTL expiry.
 2. **mkdir mode** — Fallback when orchestrator is unreachable. Uses `$(git rev-parse --git-common-dir)/merge.lock` directory. PID-based stale detection with auto-cleanup.

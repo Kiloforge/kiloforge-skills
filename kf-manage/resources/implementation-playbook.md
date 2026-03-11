@@ -37,7 +37,7 @@ When invoked without arguments, display the main menu:
 
 ### 1. Gather Quick Stats
 
-Run `.agent/kf/bin/kf-track list` and scan directories:
+Run `.agent/kf/bin/kf-track.py list` and scan directories:
 
 - Count active tracks (status `pending` or `in-progress`)
 - Count completed tracks (status `completed`, not archived)
@@ -88,10 +88,10 @@ Display comprehensive track overview with optional filtering.
 
 **For Active Tracks:**
 
-- Run `.agent/kf/bin/kf-track list` to get all tracks
+- Run `.agent/kf/bin/kf-track.py list` to get all tracks
 - For each track with status `pending` or `in-progress`:
-  - Run `.agent/kf/bin/kf-track get {trackId}` for type, dates
-  - Run `.agent/kf/bin/kf-track-content progress {trackId}` for task counts
+  - Run `.agent/kf/bin/kf-track.py get {trackId}` for type, dates
+  - Run `.agent/kf/bin/kf-track.py-content.py progress {trackId}` for task counts
   - Calculate progress percentage
 
 **For Completed Tracks:**
@@ -204,7 +204,7 @@ Move completed tracks to the archive directory.
 
 #### 2. Verify Completion Status
 
-Read `.agent/kf/tracks/{track-id}/track.yaml` (or run `.agent/kf/bin/kf-track get {track-id}`):
+Read `.agent/kf/tracks/{track-id}/track.yaml` (or run `.agent/kf/bin/kf-track.py get {track-id}`):
 
 - If status is not `completed`:
 
@@ -492,7 +492,7 @@ Type 'YES' to proceed, or anything else to cancel:
 
 3. Update `.agent/kf/tracks.yaml` via:
    ```bash
-   .agent/kf/bin/kf-track update {track-id} --status completed
+   .agent/kf/bin/kf-track.py update {track-id} --status completed
    ```
 
 4. Git commit:

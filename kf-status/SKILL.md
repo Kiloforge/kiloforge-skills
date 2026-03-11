@@ -24,7 +24,7 @@ Display the current status of the Kiloforge project, including overall progress,
 ### Step 1 — Run pre-flight check
 
 ```bash
-eval "$(.agent/kf/bin/kf-preflight)"
+eval "$(.agent/kf/bin/kf-preflight.py)"
 ```
 
 This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
@@ -34,7 +34,7 @@ This verifies all required metadata files exist on the primary branch and sets `
 The `kf-track status` command generates the full factual status report:
 
 ```bash
-.agent/kf/bin/kf-track status --ref ${PRIMARY_BRANCH}
+.agent/kf/bin/kf-track.py status --ref ${PRIMARY_BRANCH}
 ```
 
 This outputs all **data** sections:
@@ -54,7 +54,7 @@ This outputs all **data** sections:
 If developer worktrees exist, run the dispatch script to show prioritized assignments for idle workers:
 
 ```bash
-.agent/kf/bin/kf-dispatch --ref ${PRIMARY_BRANCH}
+.agent/kf/bin/kf-dispatch.py --ref ${PRIMARY_BRANCH}
 ```
 
 This automatically scans worktrees, computes priority scores (unblock factor, conflict avoidance, type diversity), and matches idle workers to available tracks. It limits recommendations to the number of idle worktrees.
@@ -76,8 +76,8 @@ The CLI outputs are factual. After presenting them, add brief **assessment**:
 For a specific track, use:
 
 ```bash
-.agent/kf/bin/kf-track show {trackId} --ref ${PRIMARY_BRANCH}
-.agent/kf/bin/kf-track progress {trackId} --ref ${PRIMARY_BRANCH}
+.agent/kf/bin/kf-track.py show {trackId} --ref ${PRIMARY_BRANCH}
+.agent/kf/bin/kf-track.py progress {trackId} --ref ${PRIMARY_BRANCH}
 ```
 
 ## Error States

@@ -26,7 +26,7 @@ Remove archived (`_archive/`) and completed track directories from the working t
 
 Run pre-flight check:
 ```bash
-eval "$(.agent/kf/bin/kf-preflight)"
+eval "$(.agent/kf/bin/kf-preflight.py)"
 ```
 This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
 

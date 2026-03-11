@@ -25,7 +25,7 @@ Move all completed track directories into `_archive/` and update `tracks.yaml` i
 
 Run pre-flight check:
 ```bash
-eval "$(.agent/kf/bin/kf-preflight)"
+eval "$(.agent/kf/bin/kf-preflight.py)"
 ```
 This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
 

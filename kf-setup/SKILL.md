@@ -562,14 +562,14 @@ When all files are created:
    - .agent/kf/tracks.yaml
    - .agent/kf/tracks/deps.yaml
    - .agent/kf/tracks/conflicts.yaml
-   - .agent/kf/bin/kf-preflight
-   - .agent/kf/bin/kf-primary-branch
-   - .agent/kf/bin/kf-track
-   - .agent/kf/bin/kf-track-content
-   - .agent/kf/bin/kf-merge
-   - .agent/kf/bin/kf-merge-lock
-   - .agent/kf/bin/kf-dispatch
-   - .agent/kf/bin/kf-worktree-env
+   - .agent/kf/bin/kf-preflight.py
+   - .agent/kf/bin/kf-primary-branch.py
+   - .agent/kf/bin/kf-track.py
+   - .agent/kf/bin/kf-track.py-content.py
+   - .agent/kf/bin/kf-merge.py
+   - .agent/kf/bin/kf-merge.py-lock.py
+   - .agent/kf/bin/kf-dispatch.py
+   - .agent/kf/bin/kf-worktree-env.py
    - .agent/kf/code_styleguides/[languages]
 
    [If committed: "Artifacts committed to {primary_branch}."]

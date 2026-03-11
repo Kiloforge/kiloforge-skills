@@ -55,7 +55,7 @@ This advisor runs inside an existing, initialized Kiloforge project. It uses the
 ### Step 1 — Run pre-flight check
 
 ```bash
-eval "$(.agent/kf/bin/kf-preflight)"
+eval "$(.agent/kf/bin/kf-preflight.py)"
 ```
 
 This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
@@ -345,7 +345,7 @@ If the `--generate-tracks` flag was provided, create kiloforge tracks for medium
 
 For each improvement group, invoke track creation:
 ```bash
-.agent/kf/bin/kf-track create --type chore --title "<improvement title>"
+.agent/kf/bin/kf-track.py create --type chore --title "<improvement title>"
 ```
 
 Or describe the tracks and suggest the user run `/kf-architect` with the recommendations.

@@ -57,8 +57,8 @@ mkdir -p .agent/kf/tracks/_archive
 mv "$TRACK_DIR" "$ARCHIVE_DIR"
 
 # 3. Update the master tracks.yaml registry via kf-track CLI
-if [ -x ".agent/kf/bin/kf-track" ]; then
-  .agent/kf/bin/kf-track update "$TRACK_ID" --status archived
+if [ -x ".agent/kf/bin/kf-track.py" ]; then
+  .agent/kf/bin/kf-track.py update "$TRACK_ID" --status archived
 else
   # Fallback: update tracks.yaml directly if CLI not available
   if [ -f "$TRACKS_YAML" ]; then
