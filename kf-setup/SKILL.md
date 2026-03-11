@@ -349,7 +349,43 @@ Template populated with:
 tracks: {}
 ```
 
-### 7. .agent/kf/code_styleguides/
+### 7. .agent/kf/tracks/ directory
+
+Create the tracks directory and empty dependency/conflict state files:
+
+```bash
+mkdir -p .agent/kf/tracks
+```
+
+```yaml
+# .agent/kf/tracks/deps.yaml
+# Track Dependency Graph
+#
+# PROTOCOL:
+#   Canonical source for track dependency ordering (adjacency list).
+#   Each key is a track ID; its value is a list of prerequisite track IDs.
+#
+# RULES:
+#   - Only pending/in-progress tracks listed. Completed tracks pruned on cleanup.
+#   - Architect appends entries when creating tracks.
+#   - Developer checks deps before claiming: all deps must be completed.
+#   - Cycles are forbidden.
+```
+
+```yaml
+# .agent/kf/tracks/conflicts.yaml
+# Track Conflict Pairs
+#
+# PROTOCOL:
+#   Records pairs of tracks that risk merge conflicts if worked in parallel.
+#   Each key is "{lower-id}/{higher-id}" (alphabetical).
+#
+# RULES:
+#   - Architect adds pairs when genuine file overlap exists.
+#   - Pairs auto-cleaned when either track completes.
+```
+
+### 8. .agent/kf/code_styleguides/
 
 Generate selected style guides from `$CLAUDE_PLUGIN_ROOT/templates/code_styleguides/`
 
@@ -380,6 +416,8 @@ When all files are created:
    - .agent/kf/tech-stack.yaml
    - .agent/kf/workflow.yaml
    - .agent/kf/tracks.yaml
+   - .agent/kf/tracks/deps.yaml
+   - .agent/kf/tracks/conflicts.yaml
    - .agent/kf/code_styleguides/[languages]
 
    Next steps:

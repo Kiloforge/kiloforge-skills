@@ -615,7 +615,14 @@ Map blueprint fields to kf-setup sections:
    tracks: {}
    ```
 
-5. Update `getting-started-state.json`:
+5. Create tracks directory with empty state files:
+   ```bash
+   mkdir -p .agent/kf/tracks
+   ```
+   - `.agent/kf/tracks/deps.yaml` — empty dependency graph (with header comment)
+   - `.agent/kf/tracks/conflicts.yaml` — empty conflict pairs (with header comment)
+
+6. Update `getting-started-state.json`:
    - Set `status` to `"complete"`
    - Update `files_created` with all generated files
    - Set `last_updated`
@@ -635,12 +642,15 @@ Map blueprint fields to kf-setup sections:
    {list of files_created}
 
    Kiloforge artifacts:
+   - .agent/kf/config.yaml
    - .agent/kf/product.yaml
    - .agent/kf/product-guidelines.yaml
    - .agent/kf/tech-stack.yaml
    - .agent/kf/workflow.yaml
-   - .agent/kf/code_styleguides/{language}.yaml
    - .agent/kf/tracks.yaml
+   - .agent/kf/tracks/deps.yaml
+   - .agent/kf/tracks/conflicts.yaml
+   - .agent/kf/code_styleguides/{language}.yaml
 
    Next steps:
    1. Review generated files and customize as needed

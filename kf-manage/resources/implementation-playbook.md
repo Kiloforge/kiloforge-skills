@@ -273,7 +273,7 @@ Type 'YES' to proceed, or anything else to cancel:
 You MUST execute the provided archive script to safely sync all tracking text and move the files:
 
 ```bash
-~/.gemini/antigravity/skills/kf-manage/scripts/archive_track.sh {track-id}
+$SKILL_DIR/scripts/archive_track.sh {track-id}
 ```
 
 Wait for the script to complete successfully. The script will automatically handle:
