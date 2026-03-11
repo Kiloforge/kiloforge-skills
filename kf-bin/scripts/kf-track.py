@@ -177,16 +177,58 @@ def server_query_claims():
         return []
 
 
+def worktree_lock_claimed():
+    """Read claims from per-worktree claim locks (instant — filesystem read).
+    Returns list of (track_id, worker_name) tuples.
+    """
+    try:
+        from lib import worktree_lock
+        return worktree_lock.claimed_track_ids()
+    except Exception:
+        return []
+
+
 def get_claimed_tracks():
-    """Get claimed tracks: try server first, fall back to branch scan."""
-    claims = server_query_claims()
-    if not claims:
-        claims = branch_scan_claimed()
-    return claims
+    """Get claimed tracks from all sources, deduplicated.
+    Priority: worktree locks (instant) > server > branch scan (slow).
+    """
+    seen = set()
+    results = []
+
+    # 1. Worktree claim locks (instant)
+    for tid, worker in worktree_lock_claimed():
+        if tid not in seen:
+            seen.add(tid)
+            results.append((tid, worker))
+
+    # 2. Orchestrator API (fast)
+    for tid, worker in server_query_claims():
+        if tid not in seen:
+            seen.add(tid)
+            results.append((tid, worker))
+
+    # 3. Branch scan (slow — only if no claims found yet)
+    if not results:
+        for tid, worker in branch_scan_claimed():
+            if tid not in seen:
+                seen.add(tid)
+                results.append((tid, worker))
+
+    return results
 
 
 def is_track_claimed(track_id):
     """Check if a specific track is claimed. Returns (True, worker) or (False, '')."""
+    # Fast path: check worktree locks first (instant)
+    try:
+        from lib import worktree_lock
+        claim = worktree_lock.find_track_claim(track_id)
+        if claim:
+            wt_name, info = claim
+            return True, info.get("holder", wt_name)
+    except Exception:
+        pass
+    # Full search
     claims = get_claimed_tracks()
     for tid, worker in claims:
         if tid == track_id:

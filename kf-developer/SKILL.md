@@ -86,7 +86,7 @@ To see available tracks, run `.agent/kf/bin/kf-track.py list` or /kf-architect t
 
 **HALT.**
 
-### Step 3 — Validate track exists and is claimable
+### Step 3 — Validate track and acquire claim
 
 1. **Check track exists and get its status:**
    ```bash
@@ -109,35 +109,26 @@ To see available tracks, run `.agent/kf/bin/kf-track.py list` or /kf-architect t
    ```
    **HALT.**
 
-   If track is marked `in-progress`, check if another worker has it.
-
-2. **Check if another worker has claimed it:**
+2. **Acquire the worktree claim lock:**
    ```bash
-   git worktree list
-   git branch --list 'kf/*'
+   .agent/kf/bin/kf-claim.py acquire {trackId}
    ```
 
-   Look for a branch matching `*/{trackId}`. If found:
-   ```
-   ERROR: Track already claimed — {trackId}
+   This atomically claims the track for this worktree. If another worktree already
+   has it, the command fails with a clear error showing which worktree holds the claim.
+   No branch scanning or worktree enumeration is needed — the claim lock handles it.
 
-   Branch kf/{type}/{trackId} already exists, indicating another worker is implementing this track.
-
-   Worktree: {worktree path if identifiable}
-   Branch:   {branch name}
-
-   Choose a different track or coordinate with the other worker.
-   ```
-   **HALT.**
+   If the claim fails: **HALT** — the error output tells you who has the track.
 
 3. **Check dependency graph — all prerequisites must be completed:**
-
-   Run the dependency check:
    ```bash
    .agent/kf/bin/kf-track.py deps check {trackId}
    ```
 
-   If the command exits non-zero (BLOCKED), it will list unmet dependencies:
+   If the command exits non-zero (BLOCKED), **release the claim first**, then halt:
+   ```bash
+   .agent/kf/bin/kf-claim.py release
+   ```
    ```
    ERROR: Dependencies not met — {trackId}
 
@@ -333,6 +324,9 @@ VERIFY_CMD="<commands from workflow.yaml>"
 After `kf-merge` succeeds:
 
 ```bash
+# Release the worktree claim lock
+.agent/kf/bin/kf-claim.py release
+
 # Return to developer home branch
 git checkout {worker-home-branch}
 

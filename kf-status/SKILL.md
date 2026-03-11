@@ -29,7 +29,29 @@ eval "$(.agent/kf/bin/kf-preflight.py)"
 
 This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
 
-### Step 2 — Run the status command
+### Step 2 — Show current workers (instant)
+
+Query worktree claim locks for an instant snapshot of who is working on what:
+
+```bash
+.agent/kf/bin/kf-claim.py list
+```
+
+This reads filesystem-based claim locks (no git or network operations) and outputs a table:
+
+```
+WORKTREE             TRACK                                              HOLDER               STARTED
+worker-1             auth_20250115100000Z                               worker-1             2025-01-15T10:30:00Z
+worker-2             search_20250115100001Z                             worker-2             2025-01-15T10:31:00Z
+
+2 active claim(s)
+```
+
+If no claims are active, it prints `(no active claims)` — skip this section in the output.
+
+Display this as a **Current Workers** section at the top of the status report, before the track summary. This gives an immediate picture of parallel activity without waiting for heavier git operations.
+
+### Step 3 — Run the status command
 
 The `kf-track status` command generates the full factual status report:
 
@@ -49,7 +71,7 @@ This outputs all **data** sections:
 - **Conflict Risk** — active conflict pairs from `conflicts.yaml`, showing risk level and notes (only appears when active pairs exist)
 - **Blocked** — pending tracks with unmet dependencies and their current statuses
 
-### Step 3 — Show dispatch recommendations
+### Step 4 — Show dispatch recommendations
 
 If developer worktrees exist, run the dispatch script to show prioritized assignments for idle workers:
 
@@ -61,7 +83,7 @@ This automatically scans worktrees, computes priority scores (unblock factor, co
 
 If no worktrees exist, skip this step.
 
-### Step 4 — Assess and recommend
+### Step 5 — Assess and recommend
 
 The CLI outputs are factual. After presenting them, add brief **assessment**:
 
