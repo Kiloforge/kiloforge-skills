@@ -12,29 +12,54 @@ Display available CLI tools installed to `.agent/kf/bin/` during project setup.
 - You want to see what CLI tools are available
 - You need usage help for a specific tool
 
-## Tools
+## Runtime Environment
 
-All tools require Python 3 and PyYAML via the Kiloforge venv (`~/.kf/.venv`).
+All CLI tools are Python scripts that require the Kiloforge virtual environment at `~/.kf/.venv`. This venv is created automatically during `/kf-setup` and contains Python 3 with PyYAML.
+
+**Running scripts:** During setup, script shebangs are rewritten to point directly at the venv interpreter (`~/.kf/.venv/bin/python`), so scripts run with the correct environment automatically:
+
+```bash
+# Scripts are executable and use the venv automatically via their shebang
+.agent/kf/bin/kf-track.py list --active
+```
+
+**If the venv is missing or broken**, restore it:
+
+```bash
+# Create venv (skip if it exists)
+python3 -m venv ~/.kf/.venv
+
+# Install dependencies
+~/.kf/.venv/bin/pip install pyyaml
+
+# Rewrite shebangs to use the venv
+KF_PYTHON="$HOME/.kf/.venv/bin/python"
+for f in .agent/kf/bin/*.py; do
+  sed -i.bak "1s|.*|#!$KF_PYTHON|" "$f" && rm -f "$f.bak"
+done
+```
+
+For detailed platform-specific installation instructions (macOS, Linux, Windows), see `references/python-setup.md`.
+
+## Tools
 
 | Tool | Description |
 |------|-------------|
-| `kf-preflight` | Pre-flight check: verifies metadata files and tools exist, sets `PRIMARY_BRANCH` |
-| `kf-primary-branch` | Resolves the primary branch from config.yaml |
-| `kf-track` | Track registry management (add, list, update, deps, conflicts) |
-| `kf-track-content` | Track content management (init, show, spec, plan, task progress) |
-| `kf-merge` | Unified merge protocol (lock, rebase, verify, merge, release) |
-| `kf-merge-lock` | Cross-worktree merge lock (acquire, release, heartbeat) |
-| `kf-dispatch` | Compute dispatch assignments for idle developer worktrees |
-| `kf-worktree-env` | Detect git worktree context and export env vars |
+| `kf-preflight.py` | Pre-flight check: verifies metadata files and tools exist, sets `PRIMARY_BRANCH` |
+| `kf-primary-branch.py` | Resolves the primary branch from config.yaml |
+| `kf-track.py` | Track registry management (add, list, update, deps, conflicts) |
+| `kf-track-content.py` | Track content management (init, show, spec, plan, task progress) |
+| `kf-merge.py` | Unified merge protocol (lock, rebase, verify, merge, release) |
+| `kf-merge-lock.py` | Cross-worktree merge lock (acquire, release, heartbeat) |
+| `kf-dispatch.py` | Compute dispatch assignments for idle developer worktrees |
+| `kf-worktree-env.py` | Detect git worktree context and export env vars |
 
 ## Instructions
 
 When invoked, display the tools table above. If a tool name is provided as an argument, show its usage by running:
 
 ```bash
-.agent/kf/bin/{tool} --help
+.agent/kf/bin/{tool}.py --help
 ```
 
 If tools are not installed, suggest running `/kf-setup`.
-
-If a script fails with a Python-related error (missing interpreter, missing `yaml` module, etc.), open `references/python-setup.md` for platform-specific installation and venv restoration steps.
