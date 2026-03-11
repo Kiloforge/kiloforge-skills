@@ -423,11 +423,11 @@ Install all Kiloforge CLI tools from the skills repo `bin/` directory:
 
 ```bash
 mkdir -p .agent/kf/bin
-cp "$SKILL_DIR/../bin/"* .agent/kf/bin/
+cp "$SKILL_DIR/../kf-bin/bin/"* .agent/kf/bin/
 chmod +x .agent/kf/bin/*
 ```
 
-The `$SKILL_DIR` variable resolves to the directory containing this skill's `SKILL.md`. The `bin/` directory is one level up (at the skills repo root).
+The `$SKILL_DIR` variable resolves to the directory containing this skill's `SKILL.md`. The `kf-bin/bin/` directory is one level up (at the skills repo root, inside the `kf-bin` skill).
 
 This installs the following tools:
 
