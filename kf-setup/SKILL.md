@@ -395,7 +395,33 @@ mkdir -p .agent/kf/tracks
 #   - Pairs auto-cleaned when either track completes.
 ```
 
-### 8. .agent/kf/code_styleguides/
+### 8. .agent/kf/bin/kf-primary-branch
+
+Install the shared helper script that resolves the primary branch. Copy from `$SKILL_DIR/../bin/kf-primary-branch`:
+
+```bash
+mkdir -p .agent/kf/bin
+cp "$SKILL_DIR/../bin/kf-primary-branch" .agent/kf/bin/kf-primary-branch
+chmod +x .agent/kf/bin/kf-primary-branch
+```
+
+If the source file is not available, create it directly:
+
+```sh
+#!/bin/sh
+# Resolve the Kiloforge primary branch from config.yaml.
+# Tries local file first, then git HEAD, defaults to "main".
+PRIMARY_BRANCH=""
+if [ -f .agent/kf/config.yaml ]; then
+  PRIMARY_BRANCH=$(awk '/^primary_branch:/{print $2}' .agent/kf/config.yaml)
+fi
+if [ -z "$PRIMARY_BRANCH" ]; then
+  PRIMARY_BRANCH=$(git show HEAD:.agent/kf/config.yaml 2>/dev/null | awk '/^primary_branch:/{print $2}')
+fi
+echo "${PRIMARY_BRANCH:-main}"
+```
+
+### 9. .agent/kf/code_styleguides/
 
 Generate selected style guides from `$CLAUDE_PLUGIN_ROOT/templates/code_styleguides/`
 
@@ -433,6 +459,7 @@ When all files are created:
    - .agent/kf/tracks.yaml
    - .agent/kf/tracks/deps.yaml
    - .agent/kf/tracks/conflicts.yaml
+   - .agent/kf/bin/kf-primary-branch
    - .agent/kf/code_styleguides/[languages]
 
    [If committed: "Artifacts committed to {primary_branch}."]

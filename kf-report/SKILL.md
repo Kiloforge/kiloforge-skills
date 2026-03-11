@@ -29,14 +29,7 @@ Reports are written to `.agent/kf/_reports/` as markdown files.
 
 1. **Resolve and sync with primary branch** — your working tree may be stale:
    ```bash
-   PRIMARY_BRANCH=""
-   if [ -f .agent/kf/config.yaml ]; then
-     PRIMARY_BRANCH=$(awk '/^primary_branch:/{print $2}' .agent/kf/config.yaml)
-   fi
-   if [ -z "$PRIMARY_BRANCH" ]; then
-     PRIMARY_BRANCH=$(git show HEAD:.agent/kf/config.yaml 2>/dev/null | awk '/^primary_branch:/{print $2}')
-   fi
-   PRIMARY_BRANCH="${PRIMARY_BRANCH:-main}"
+   PRIMARY_BRANCH=$(.agent/kf/bin/kf-primary-branch)
    git reset --hard ${PRIMARY_BRANCH}
    ```
    This ensures you see the latest track statuses, completed/archived tracks, and project metadata. Without this, reports may show outdated data or miss recently completed tracks.
@@ -621,14 +614,7 @@ After writing report files, merge them to the primary branch so all worktrees ca
 ### Step 1 — Resolve primary branch and record home branch
 
 ```bash
-PRIMARY_BRANCH=""
-if [ -f .agent/kf/config.yaml ]; then
-  PRIMARY_BRANCH=$(awk '/^primary_branch:/{print $2}' .agent/kf/config.yaml)
-fi
-if [ -z "$PRIMARY_BRANCH" ]; then
-  PRIMARY_BRANCH=$(git show HEAD:.agent/kf/config.yaml 2>/dev/null | awk '/^primary_branch:/{print $2}')
-fi
-PRIMARY_BRANCH="${PRIMARY_BRANCH:-main}"
+PRIMARY_BRANCH=$(.agent/kf/bin/kf-primary-branch)
 HOME_BRANCH=$(git branch --show-current)
 MAIN_WORKTREE=$(git worktree list | grep -E '\['"$PRIMARY_BRANCH"'\]' | awk '{print $1}')
 ```

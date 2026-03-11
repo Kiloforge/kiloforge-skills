@@ -48,14 +48,7 @@ The reviewer works from its own worktree but reads code via the PR diff and by c
 Before any track lookups or validation, sync to the latest state. Your worktree may be stale — other developers and architects merge continuously:
 
 ```bash
-PRIMARY_BRANCH=""
-if [ -f .agent/kf/config.yaml ]; then
-  PRIMARY_BRANCH=$(awk '/^primary_branch:/{print $2}' .agent/kf/config.yaml)
-fi
-if [ -z "$PRIMARY_BRANCH" ]; then
-  PRIMARY_BRANCH=$(git show HEAD:.agent/kf/config.yaml 2>/dev/null | awk '/^primary_branch:/{print $2}')
-fi
-PRIMARY_BRANCH="${PRIMARY_BRANCH:-main}"
+PRIMARY_BRANCH=$(.agent/kf/bin/kf-primary-branch)
 git reset --hard ${PRIMARY_BRANCH}
 ```
 

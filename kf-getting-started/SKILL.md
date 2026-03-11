@@ -621,6 +621,7 @@ Map blueprint fields to kf-setup sections:
    ```
    - `.agent/kf/tracks/deps.yaml` — empty dependency graph (with header comment)
    - `.agent/kf/tracks/conflicts.yaml` — empty conflict pairs (with header comment)
+   - `.agent/kf/bin/kf-primary-branch` — install from `$SKILL_DIR/../bin/kf-primary-branch` or create directly (see kf-setup for contents)
 
 6. Update `getting-started-state.json`:
    - Set `status` to `"complete"`
@@ -650,6 +651,7 @@ Map blueprint fields to kf-setup sections:
    - .agent/kf/tracks.yaml
    - .agent/kf/tracks/deps.yaml
    - .agent/kf/tracks/conflicts.yaml
+   - .agent/kf/bin/kf-primary-branch
    - .agent/kf/code_styleguides/{language}.yaml
 
    Next steps:
