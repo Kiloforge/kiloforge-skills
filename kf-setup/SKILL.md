@@ -273,7 +273,7 @@ Suggested:
 How strictly should TDD be enforced?
 
 Suggested:
-1. Strict - tests required before implementation
+1. Strict - tests required before implementation (highly recommended for fully autonomous agents)
 2. Moderate - tests encouraged, not blocked
 3. Flexible - tests recommended for complex logic
 ```
