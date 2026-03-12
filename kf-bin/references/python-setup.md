@@ -135,20 +135,15 @@ if (-not (Test-Path ".agent\kf\.venv")) {
 & ".agent\kf\.venv\Scripts\python" -c "import yaml; print('PyYAML', yaml.__version__)"
 ```
 
-## Rewrite Script Shebangs (macOS / Linux only)
+## Running Scripts
 
-If scripts were installed before the venv existed, their shebangs may point to the wrong interpreter:
+Scripts use `#!/usr/bin/env python3` and rely on the venv being activated first:
 
 ```bash
-KF_PYTHON=".agent/kf/.venv/bin/python"
-for f in .agent/kf/bin/*; do
-  if head -1 "$f" | grep -q python; then
-    sed -i.bak "1s|.*|#!$KF_PYTHON|" "$f" && rm -f "$f.bak"
-  fi
-done
+source .agent/kf/.venv/bin/activate && .agent/kf/bin/kf-track.py list
 ```
 
-On Windows, shebangs are ignored — Python scripts are invoked directly via the venv's `python.exe`.
+When running via a skill, `kf-preflight.py` activates the venv automatically via `eval`.
 
 ## Re-run Setup
 

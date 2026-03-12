@@ -48,7 +48,7 @@ WARNING: Could not pull latest skills repo. Updating from current local version.
 python3 "$SKILL_DIR/../kf-bin/scripts/kf-install.py" --update --project-dir "$(pwd)"
 ```
 
-This replaces skill definitions in `~/.claude/skills/`, CLI scripts in `.agent/kf/bin/`, rewrites shebangs, and cleans up legacy scripts.
+This replaces skill definitions in `~/.claude/skills/`, CLI scripts in `.agent/kf/bin/`, updates `.gitignore`, and cleans up legacy scripts.
 
 **If `$SKILL_DIR` is not available**, use `--skills-dir`:
 
