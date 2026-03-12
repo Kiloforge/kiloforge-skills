@@ -204,7 +204,7 @@ def parse_active_claims():
 
 
 def classify_pending(all_tracks, deps, completed_set, claimed_tracks=None,
-                     require_approval=False):
+                     require_approval=True):
     """Classify pending tracks as available or blocked based on deps, claims, and approval."""
     if claimed_tracks is None:
         claimed_tracks = set()
@@ -329,7 +329,7 @@ def main():
 
     # Read config for approval requirement
     config = get_config(ref)
-    require_approval = config.get("require_approval", False)
+    require_approval = config.get("require_approval", True)
 
     # Read deps and conflicts
     deps = parse_deps(ref)

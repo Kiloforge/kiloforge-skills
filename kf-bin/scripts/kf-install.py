@@ -207,7 +207,7 @@ def scaffold_metadata(project_dir: Path, primary_branch: str) -> list[str]:
 
     # config.yaml
     if write_if_missing(kf_dir / "config.yaml",
-        f'project_name: ""\nprimary_branch: "{primary_branch}"\n'):
+        f'project_name: ""\nprimary_branch: "{primary_branch}"\nrequire_approval: true\n'):
         created.append("config.yaml")
 
     # product.yaml
