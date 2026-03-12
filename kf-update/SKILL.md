@@ -56,6 +56,26 @@ This replaces skill definitions in `~/.claude/skills/`, CLI scripts in `.agent/k
 python3 /path/to/kiloforge-skills/kf-bin/scripts/kf-install.py --update --project-dir "$(pwd)"
 ```
 
-### Step 4 — Report
+### Step 4 — Commit changes to the primary branch
+
+The updated scripts and `.gitignore` must be committed to the primary branch so all worktrees see them.
+
+```bash
+PRIMARY_BRANCH=$(.agent/kf/bin/kf-primary-branch.py 2>/dev/null || echo "main")
+git add .agent/kf/bin/ .agent/kf/.gitignore
+git diff --cached --quiet || git commit -m "chore(kf): update kiloforge CLI tools and config"
+```
+
+If you are running from a worktree (not the primary branch), merge to primary:
+
+```bash
+CURRENT_BRANCH=$(git branch --show-current)
+if [ "$CURRENT_BRANCH" != "$PRIMARY_BRANCH" ]; then
+  MAIN_WT=$(git worktree list | head -1 | awk '{print $1}')
+  git -C "$MAIN_WT" merge "$CURRENT_BRANCH" --ff-only
+fi
+```
+
+### Step 5 — Report
 
 Show the output from `kf-install.py` — it reports which skills were added/updated and which scripts were copied.
