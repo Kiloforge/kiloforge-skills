@@ -657,6 +657,28 @@ def ensure_primary_worktree():
     return None
 
 
+def _launch_approval_tui():
+    """Launch the approval TUI in its own tmux window (if not already open)."""
+    tui_script = os.path.join(BIN_DIR, "kf-approve-tui.py")
+    if not Path(tui_script).exists():
+        return
+
+    window_name = "kf-approve"
+    result = subprocess.run(
+        ["tmux", "list-windows", "-F", "#{window_name}"],
+        capture_output=True, text=True,
+    )
+    if window_name in result.stdout.split("\n"):
+        return  # Already open
+
+    subprocess.run(
+        ["tmux", "new-window", "-n", window_name, "-d",
+         f"{sys.executable} {tui_script}"],
+        capture_output=True, text=True,
+    )
+    print(f"  Approval TUI opened in tmux window: {window_name}")
+
+
 def cmd_start(args):
     """Start the manager loop — runs in the foreground."""
     check_tmux()
@@ -683,6 +705,9 @@ def cmd_start(args):
     print(f"Conductor manager started (pid: {os.getpid()}, max_workers: {max_w}, timeout: {timeout_min}m)")
     print(f"Use 'kf-conductor.py suspend/resume/stop' from another window to control.")
     print()
+
+    # Auto-launch the approval TUI in its own tmux window
+    _launch_approval_tui()
 
     try:
         _manager_loop(max_w, timeout_min)
