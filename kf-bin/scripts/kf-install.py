@@ -342,25 +342,56 @@ def copy_skills(skills_dir: Path, skills_target: Path) -> tuple[list[str], list[
     return updated, added
 
 
-def rewrite_shebangs(project_dir: Path, venv_dir: Path):
-    """Rewrite Python script shebangs to use the project-local venv."""
+def inject_venv_activation(project_dir: Path, venv_dir: Path):
+    """Inject a venv site-packages activation snippet into installed scripts.
+
+    Instead of rewriting shebangs to an absolute venv python path (which
+    breaks portability), we keep #!/usr/bin/env python3 and add a small
+    preamble that discovers the venv relative to the script's own location
+    and adds its site-packages to sys.path at import time.
+    """
     bin_dir = project_dir / ".agent" / "kf" / "bin"
-    python_path = str(venv_dir / "bin" / "python")
-    if not Path(python_path).exists():
-        python_path = str(venv_dir / "Scripts" / "python")  # Windows
+
+    # The activation snippet — discovers venv relative to the script
+    snippet = (
+        '# --- kf venv activation (injected by kf-install) ---\n'
+        'import os as _os, sys as _sys, glob as _glob\n'
+        '_venv = _os.path.join(_os.path.dirname(_os.path.dirname('
+        '_os.path.abspath(__file__))), ".venv")\n'
+        '_sp = _glob.glob(_os.path.join(_venv, "lib", "python*", "site-packages"))\n'
+        'if not _sp:\n'
+        '    _sp = _glob.glob(_os.path.join(_venv, "Lib", "site-packages"))\n'
+        'if _sp and _sp[0] not in _sys.path:\n'
+        '    _sys.path.insert(0, _sp[0])\n'
+        '# --- end kf venv activation ---\n'
+    )
+    marker = "# --- kf venv activation"
 
     count = 0
     for f in sorted(bin_dir.glob("*.py")):
         text = f.read_text()
-        lines = text.split("\n", 1)
-        if lines and "python" in lines[0]:
-            new_shebang = f"#!{python_path}"
-            if lines[0] != new_shebang:
-                new_text = new_shebang + "\n" + (lines[1] if len(lines) > 1 else "")
-                f.write_text(new_text)
-                count += 1
 
-    print(f"Rewrote shebangs in {count} script(s)")
+        # Restore portable shebang if it was rewritten to an absolute path
+        lines = text.split("\n", 1)
+        if lines and lines[0].startswith("#!") and "python" in lines[0]:
+            if lines[0] != "#!/usr/bin/env python3":
+                text = "#!/usr/bin/env python3\n" + (lines[1] if len(lines) > 1 else "")
+
+        # Skip if already injected
+        if marker in text:
+            continue
+
+        # Insert after shebang line
+        parts = text.split("\n", 1)
+        if len(parts) == 2:
+            new_text = parts[0] + "\n" + snippet + parts[1]
+        else:
+            new_text = parts[0] + "\n" + snippet
+
+        f.write_text(new_text)
+        count += 1
+
+    print(f"Injected venv activation in {count} script(s)")
 
 
 def clean_legacy(project_dir: Path) -> list[str]:
@@ -473,11 +504,11 @@ def main():
         print("  (all skills already up to date)")
     print()
 
-    # Step 5: Rewrite shebangs
+    # Step 5: Inject venv activation
     if venv_dir.is_dir():
-        rewrite_shebangs(project_dir, venv_dir)
+        inject_venv_activation(project_dir, venv_dir)
     else:
-        print("WARNING: Venv not found — shebangs not updated", file=sys.stderr)
+        print("WARNING: Venv not found — venv activation not injected", file=sys.stderr)
     print()
 
     # Step 6: Clean legacy
