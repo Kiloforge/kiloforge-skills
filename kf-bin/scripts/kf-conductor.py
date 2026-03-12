@@ -41,6 +41,7 @@ from pathlib import Path
 # Add parent directory to path so lib/ is importable
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lib import git
+from lib.config import Config
 
 BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -135,6 +136,32 @@ def worktree_path_for(worker: str) -> str | None:
     return None
 
 
+def get_max_workers() -> int:
+    """Read max_workers from config.yaml, defaulting to 4."""
+    # Try project config first
+    toplevel = git.toplevel()
+    if toplevel:
+        cfg_path = Path(toplevel) / ".agent" / "kf" / "config.yaml"
+        if cfg_path.exists():
+            cfg = Config(cfg_path)
+            try:
+                return int(cfg.get("max_workers"))
+            except (ValueError, KeyError):
+                pass
+    return 4
+
+
+def count_running_workers() -> int:
+    """Count currently running conductor-managed workers."""
+    cdir = conductor_dir()
+    count = 0
+    for sf in cdir.glob("*.json"):
+        data = refresh_status(sf.stem)
+        if data and data.get("state") == "running":
+            count += 1
+    return count
+
+
 def read_status(worker: str) -> dict | None:
     """Read a worker's status file."""
     sf = status_file(worker)
@@ -188,6 +215,15 @@ def cmd_spawn(args):
     worker = args.worker
     track_id = args.track_id
     timeout_min = args.timeout
+
+    # Check max_workers limit
+    max_w = args.max_workers if hasattr(args, "max_workers") and args.max_workers else get_max_workers()
+    running = count_running_workers()
+    if running >= max_w:
+        print(f"ERROR: Already at max workers ({running}/{max_w}). "
+              f"Wait for workers to finish or increase max_workers in config.yaml.",
+              file=sys.stderr)
+        return 1
 
     # Validate worktree exists
     wt_path = worktree_path_for(worker)
@@ -289,11 +325,18 @@ def cmd_dispatch(args):
     check_tmux()
 
     timeout_min = args.timeout
+    max_w = args.max_workers if args.max_workers else get_max_workers()
+
+    # Check how many slots are available
+    running = count_running_workers()
+    available_slots = max_w - running
+    if available_slots <= 0:
+        print(f"Already at max workers ({running}/{max_w}). Wait for workers to finish.")
+        return 0
 
     # Run kf-dispatch to get assignments
-    dispatch_cmd = [os.path.join(BIN_DIR, "kf-dispatch.py"), "--json"]
-    if args.limit:
-        dispatch_cmd += ["--limit", str(args.limit)]
+    limit = min(args.limit, available_slots) if args.limit else available_slots
+    dispatch_cmd = [os.path.join(BIN_DIR, "kf-dispatch.py"), "--json", "--limit", str(limit)]
 
     result = subprocess.run(dispatch_cmd, capture_output=True, text=True)
     if result.returncode != 0:
@@ -313,7 +356,7 @@ def cmd_dispatch(args):
             print(f"  {len(plan['blocked_tracks'])} track(s) blocked on dependencies")
         return 0
 
-    print(f"Dispatching {len(assignments)} worker(s)...")
+    print(f"Dispatching {len(assignments)} worker(s) (max: {max_w}, running: {running})...")
     print()
 
     success = 0
@@ -321,11 +364,17 @@ def cmd_dispatch(args):
         worker = a["worker"]
         track_id = a["track_id"]
 
+        # Re-check limit before each spawn (a previous spawn counts)
+        if count_running_workers() >= max_w:
+            print(f"  Reached max workers ({max_w}), stopping dispatch")
+            break
+
         # Build spawn args
         spawn_args = argparse.Namespace(
             worker=worker,
             track_id=track_id,
             timeout=timeout_min,
+            max_workers=max_w,
         )
         rc = cmd_spawn(spawn_args)
         if rc == 0:
@@ -404,8 +453,9 @@ def cmd_status(args):
     # Summary
     running = sum(1 for w in workers if w.get("state") == "running")
     done = sum(1 for w in workers if w.get("state") in ("completed", "failed", "timeout", "killed"))
+    max_w = get_max_workers()
     print()
-    print(f"{running} running, {done} finished")
+    print(f"{running} running, {done} finished (max_workers: {max_w})")
     return 0
 
 
@@ -513,11 +563,13 @@ def main():
     p_spawn.add_argument("worker", help="Worker name (must match a worktree)")
     p_spawn.add_argument("track_id", help="Track ID to implement")
     p_spawn.add_argument("--timeout", type=int, default=30, help="Timeout in minutes (default: 30)")
+    p_spawn.add_argument("--max-workers", type=int, default=0, help="Override max_workers from config (0=use config)")
 
     # dispatch
     p_dispatch = sub.add_parser("dispatch", help="Auto-dispatch workers from kf-dispatch plan")
     p_dispatch.add_argument("--timeout", type=int, default=30, help="Timeout per worker in minutes (default: 30)")
-    p_dispatch.add_argument("--limit", type=int, default=0, help="Max workers to spawn (0=unlimited)")
+    p_dispatch.add_argument("--max-workers", type=int, default=0, help="Override max_workers from config (0=use config)")
+    p_dispatch.add_argument("--limit", type=int, default=0, help="Max assignments from dispatch (0=fill to max_workers)")
 
     # status
     p_status = sub.add_parser("status", help="Show worker status")
