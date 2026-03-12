@@ -222,6 +222,121 @@ def _start_manager():
 
 
 # ---------------------------------------------------------------------------
+# Architect spawning
+# ---------------------------------------------------------------------------
+
+def _find_architect_worktree():
+    """Find an available architect worktree."""
+    output = run("git worktree list --porcelain")
+    if not output:
+        return None
+    worktrees = []
+    current = {}
+    for line in output.split("\n"):
+        if line.startswith("worktree "):
+            if current:
+                worktrees.append(current)
+            current = {"path": line.split(" ", 1)[1]}
+        elif line.startswith("branch "):
+            current["branch"] = line.split(" ", 1)[1].replace("refs/heads/", "")
+    if current:
+        worktrees.append(current)
+
+    for wt in worktrees:
+        folder = os.path.basename(wt["path"])
+        branch = wt.get("branch", "")
+        if folder.startswith("architect") and branch == folder:
+            return wt["path"]
+    return None
+
+
+def spawn_architect(prompt=None):
+    """Spawn a new architect agent in a tmux window.
+
+    Args:
+        prompt: Feature description. If None, architect runs interactively.
+
+    Returns (ok, message).
+    """
+    wt_path = _find_architect_worktree()
+    if not wt_path:
+        return False, "No architect worktree found"
+
+    # Check if an architect window already exists
+    result = subprocess.run(
+        ["tmux", "list-windows", "-F", "#{window_name}"],
+        capture_output=True, text=True,
+    )
+    existing = result.stdout.strip().split("\n") if result.stdout.strip() else []
+    # Find next available name
+    idx = 1
+    while f"architect-{idx}" in existing:
+        idx += 1
+    window_name = f"architect-{idx}"
+
+    cmd = f"cd {wt_path} && claude --dangerously-skip-permissions"
+    result = subprocess.run(
+        ["tmux", "new-window", "-n", window_name, "-d", cmd],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return False, f"tmux failed: {result.stderr.strip()}"
+
+    if prompt:
+        # Wait for claude to initialize, then send the prompt
+        time.sleep(2)
+        skill_cmd = f"/kf-architect {prompt}"
+        subprocess.run(
+            ["tmux", "send-keys", "-t", window_name, skill_cmd, "Enter"],
+            capture_output=True, text=True,
+        )
+        return True, f"Architect spawned in {window_name}"
+    else:
+        return True, f"Architect opened in {window_name} (interactive)"
+
+
+def prompt_input(stdscr, label="Prompt: "):
+    """Show a single-line text input at the bottom of the screen.
+
+    Returns the entered string, or None if cancelled (ESC).
+    """
+    h, w = stdscr.getmaxyx()
+    y = h - 2
+    buf = []
+
+    curses.curs_set(1)
+    stdscr.timeout(-1)
+
+    while True:
+        # Draw input line
+        text = label + "".join(buf)
+        try:
+            stdscr.move(y, 0)
+            stdscr.clrtoeol()
+            stdscr.addnstr(y, 0, text[:w - 1], w - 1, curses.A_BOLD)
+        except curses.error:
+            pass
+        stdscr.refresh()
+
+        ch = stdscr.getch()
+
+        if ch == 27:  # ESC
+            curses.curs_set(0)
+            return None
+        elif ch in (curses.KEY_ENTER, 10, 13):
+            curses.curs_set(0)
+            return "".join(buf).strip()
+        elif ch in (curses.KEY_BACKSPACE, 127, 8):
+            if buf:
+                buf.pop()
+        elif 32 <= ch < 127:
+            buf.append(chr(ch))
+
+    curses.curs_set(0)
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Track state model
 # ---------------------------------------------------------------------------
 
@@ -391,6 +506,11 @@ def show_help_panel(stdscr):
         "  F6              Suspend manager (pause dispatch)",
         "  F7              Resume manager",
         "  F8              Stop manager (graceful shutdown)",
+        "",
+        "  ARCHITECT",
+        "  ──────────────────────────────────────",
+        "  n               New architect (with prompt)",
+        "  N               New architect (interactive)",
         "",
         "  OTHER",
         "  ──────────────────────────────────────",
@@ -685,7 +805,7 @@ def tui_main(stdscr, ref):
                       C_RED if status_msg else 0)
 
         # --- Footer ---
-        footer = " [SPC]Toggle [RET]Detail [a]All [u]None [s]Save [r]Refresh  [F5]Start [F6]Pause [F7]Resume [F8]Stop  [?]Help [q]Quit "
+        footer = " [SPC]Toggle [RET]Detail [a]All [u]None [s]Save [r]Refresh [n]Architect  [F5]Start [F6]Pause [F7]Resume [F8]Stop  [?]Help [q]Quit "
         stdscr.attron(curses.A_REVERSE)
         safe_addnstr(stdscr, h - 1, 0, footer[:w - 1].ljust(w - 1), w - 1)
         stdscr.attroff(curses.A_REVERSE)
@@ -742,6 +862,23 @@ def tui_main(stdscr, ref):
         elif key == ord("r"):
             state.refresh()
             status_msg = "Refreshed"
+            status_time = time.time()
+
+        # Spawn architect
+        elif key == ord("n"):
+            stdscr.timeout(-1)
+            prompt = prompt_input(stdscr, "Architect prompt: ")
+            stdscr.timeout(500)
+            if prompt:
+                ok, msg = spawn_architect(prompt)
+                status_msg = msg
+                status_time = time.time()
+            elif prompt is not None:  # empty string (just pressed enter)
+                status_msg = "Cancelled (empty prompt)"
+                status_time = time.time()
+        elif key == ord("N"):
+            ok, msg = spawn_architect()
+            status_msg = msg
             status_time = time.time()
 
         # Help panel
