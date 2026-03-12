@@ -40,23 +40,29 @@ Initialize or resume Kiloforge project setup. This command creates foundational 
    ```
    This directory is not a git repository. How would you like to set up?
 
-   1. Standard clone — single working tree, simple workflow
-      Best for: solo development, small teams, straightforward projects
-
-   2. Worktree clone — bare repo with worktrees for parallel agents
-      Best for: multi-agent parallel development with kiloforge conductor
-
-   3. Initialize a new repo here (git init)
+   1. Clone an existing repository
+   2. Initialize a new repo here (git init)
    ```
 
-   **If the user chooses 1 (Standard clone):**
+   **If the user chooses 1 (Clone):**
 
    Ask for the repo URL:
    ```
    Enter the repository URL (e.g., git@github.com:org/repo.git):
    ```
 
-   Then clone:
+   Then ask which clone mode:
+   ```
+   How should the repo be cloned?
+
+   1. Standard clone — single working tree, simple workflow
+      Best for: solo development, small teams, straightforward projects
+
+   2. Worktree clone — bare repo with worktrees for parallel agents
+      Best for: multi-agent parallel development with kiloforge conductor
+   ```
+
+   **Standard clone:**
    ```bash
    git clone <url> .
    ```
@@ -66,29 +72,23 @@ Initialize or resume Kiloforge project setup. This command creates foundational 
    cd <repo-name>
    ```
 
-   **If the user chooses 2 (Worktree clone):**
+   **Worktree clone:**
 
-   Ask for the repo URL:
-   ```
-   Enter the repository URL (e.g., git@github.com:org/repo.git):
-   ```
-
-   Then set up the bare repo + worktree structure:
+   Clone bare into a hidden `.bare/` directory with a `.git` file pointer, matching the conductor's expected layout:
    ```bash
-   REPO_NAME=$(basename <url> .git)
-   git clone --bare <url> "${REPO_NAME}.git"
-   cd "${REPO_NAME}.git"
+   git clone --bare <url> .bare
+   echo "gitdir: ./.bare" > .git
 
    # Create the primary worktree
-   PRIMARY_BRANCH=$(git symbolic-ref HEAD | sed 's|refs/heads/||')
+   PRIMARY_BRANCH=$(git -C .bare symbolic-ref HEAD | sed 's|refs/heads/||')
    git worktree add "${PRIMARY_BRANCH}" "${PRIMARY_BRANCH}"
    cd "${PRIMARY_BRANCH}"
    ```
 
    Inform the user:
    ```
-   Bare repo created at: {path}/{REPO_NAME}.git
-   Primary worktree at:  {path}/{REPO_NAME}.git/{PRIMARY_BRANCH}
+   Bare repo at:          {path}/.bare/
+   Primary worktree at:   {path}/{PRIMARY_BRANCH}/
 
    Worktrees for architect and developer agents will be created automatically
    by the conductor. You are now in the primary worktree.
@@ -96,7 +96,7 @@ Initialize or resume Kiloforge project setup. This command creates foundational 
 
    Skip the primary branch question in step 1 — it was already determined from the bare repo HEAD. The conductor auto-detects the bare repo / worktree layout at runtime, so no clone mode needs to be stored.
 
-   **If the user chooses 3 (New repo):**
+   **If the user chooses 2 (New repo):**
 
    ```bash
    git init
