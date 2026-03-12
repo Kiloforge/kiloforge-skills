@@ -403,12 +403,32 @@ def spawn_worker(worker: str, track_id: str, timeout_min: int) -> int:
     return 0
 
 
-def run_dispatch(max_w: int, timeout_min: int) -> int:
-    """Run one dispatch cycle. Returns number of workers spawned."""
+class DispatchResult:
+    """Result of a dispatch cycle."""
+    def __init__(self, spawned: int = 0, available: int = 0, blocked: int = 0,
+                 completed: int = 0, idle_workers: int = 0, error: bool = False):
+        self.spawned = spawned
+        self.available = available
+        self.blocked = blocked
+        self.completed = completed
+        self.idle_workers = idle_workers
+        self.error = error
+
+    @property
+    def has_pending_work(self) -> bool:
+        return self.available > 0 or self.blocked > 0
+
+    @property
+    def all_done(self) -> bool:
+        return self.available == 0 and self.blocked == 0 and not self.error
+
+
+def run_dispatch(max_w: int, timeout_min: int) -> DispatchResult:
+    """Run one dispatch cycle. Returns DispatchResult with details."""
     running = count_running_workers()
     available_slots = max_w - running
     if available_slots <= 0:
-        return 0
+        return DispatchResult(idle_workers=0)
 
     dispatch_cmd = [
         os.path.join(BIN_DIR, "kf-dispatch.py"),
@@ -416,14 +436,21 @@ def run_dispatch(max_w: int, timeout_min: int) -> int:
     ]
     result = subprocess.run(dispatch_cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        return 0
+        return DispatchResult(error=True)
 
     try:
         plan = json.loads(result.stdout)
     except json.JSONDecodeError:
-        return 0
+        return DispatchResult(error=True)
 
-    spawned = 0
+    tracks = plan.get("tracks", {})
+    dr = DispatchResult(
+        available=tracks.get("available", 0),
+        blocked=tracks.get("blocked", 0),
+        completed=tracks.get("completed", 0),
+        idle_workers=plan.get("workers", {}).get("idle", 0),
+    )
+
     for a in plan.get("assignments", []):
         if count_running_workers() >= max_w:
             break
@@ -431,10 +458,10 @@ def run_dispatch(max_w: int, timeout_min: int) -> int:
         if rc == 0:
             timeout_str = f" (timeout: {timeout_min}m)" if timeout_min else ""
             print(f"  Spawned: {a['worker']} → {a['track_id']}{timeout_str}")
-            spawned += 1
+            dr.spawned += 1
         time.sleep(0.5)
 
-    return spawned
+    return dr
 
 
 def auto_cleanup_completed():
@@ -520,6 +547,7 @@ def cmd_start(args):
 def _manager_loop(max_w: int, timeout_min: int):
     """The main manager loop. Polls for work and dispatches."""
     cycle = 0
+    last_status = ""  # avoid repeating identical status lines
     while True:
         # Read current manager state (may have been changed by suspend/resume/stop)
         mgr = read_manager()
@@ -545,12 +573,37 @@ def _manager_loop(max_w: int, timeout_min: int):
             auto_cleanup_completed()
 
             # Dispatch new work
-            spawned = run_dispatch(max_w, timeout_min)
+            dr = run_dispatch(max_w, timeout_min)
+            running = count_running_workers()
 
-            # Log periodically
-            if spawned > 0 or cycle % 12 == 0:
-                running = count_running_workers()
-                print(f"  [{now_iso()}] running: {running}/{max_w}")
+            # Build status line
+            if dr.spawned > 0:
+                status = (f"  [{now_iso()}] running: {running}/{max_w}"
+                          f" | spawned: {dr.spawned}")
+                print(status)
+                last_status = ""
+            elif cycle % 12 == 0:  # Log every ~60s
+                if dr.error:
+                    status = f"  [{now_iso()}] running: {running}/{max_w} | dispatch error"
+                elif running > 0 and dr.available == 0 and dr.blocked == 0:
+                    status = (f"  [{now_iso()}] running: {running}/{max_w}"
+                              f" | no queued tracks, waiting for workers to finish")
+                elif dr.available == 0 and dr.blocked > 0:
+                    status = (f"  [{now_iso()}] running: {running}/{max_w}"
+                              f" | waiting: {dr.blocked} blocked track(s)")
+                elif dr.available == 0 and dr.blocked == 0 and running == 0:
+                    status = (f"  [{now_iso()}] idle"
+                              f" | no tracks available, waiting for new work...")
+                elif dr.available > 0 and dr.idle_workers == 0:
+                    status = (f"  [{now_iso()}] running: {running}/{max_w}"
+                              f" | {dr.available} track(s) queued, all workers busy")
+                else:
+                    status = f"  [{now_iso()}] running: {running}/{max_w}"
+
+                # Only print if status changed
+                if status != last_status:
+                    print(status)
+                    last_status = status
 
         else:
             break  # Unknown state
@@ -606,9 +659,18 @@ def cmd_dispatch(args):
         return 0
 
     print(f"Dispatching (max: {max_w}, running: {running}, slots: {available})...")
-    spawned = run_dispatch(max_w, args.timeout)
-    print(f"Dispatched {spawned} worker(s)")
-    return 0 if spawned > 0 else 0
+    dr = run_dispatch(max_w, args.timeout)
+    if dr.spawned > 0:
+        print(f"Dispatched {dr.spawned} worker(s)")
+    elif dr.available == 0 and dr.blocked == 0:
+        print("No tracks available to dispatch.")
+    elif dr.available == 0 and dr.blocked > 0:
+        print(f"No tracks ready — {dr.blocked} blocked by dependencies.")
+    elif dr.error:
+        print("Dispatch failed — check kf-dispatch output.")
+    else:
+        print("No workers dispatched.")
+    return 0
 
 
 def cmd_status(args):
