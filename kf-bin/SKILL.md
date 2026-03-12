@@ -58,6 +58,7 @@ For detailed platform-specific installation instructions (macOS, Linux, Windows)
 | `kf-worktree-env.py` | Detect git worktree context and export env vars |
 | `kf-status.py` | Full project status in one call (workers, tracks, dispatch) |
 | `kf-install.py` | Install or update CLI tools in a project (venv, scripts, shebangs) |
+| `kf-conductor.py` | Tmux-based multi-agent orchestration (spawn, dispatch, status, kill, cleanup) |
 
 ## Instructions
 
