@@ -657,6 +657,15 @@ def ensure_primary_worktree():
     return None
 
 
+def _venv_activate_prefix():
+    """Return a shell prefix that activates the kf venv, or empty string."""
+    venv_activate = os.path.join(BIN_DIR, "..", ".venv", "bin", "activate")
+    venv_activate = os.path.normpath(venv_activate)
+    if os.path.exists(venv_activate):
+        return f"source {venv_activate} && "
+    return ""
+
+
 def _launch_approval_tui():
     """Launch the approval TUI in its own tmux window (if not already open)."""
     tui_script = os.path.join(BIN_DIR, "kf-approve-tui.py")
@@ -671,9 +680,9 @@ def _launch_approval_tui():
     if window_name in result.stdout.split("\n"):
         return  # Already open
 
+    cmd = f"{_venv_activate_prefix()}python3 {tui_script}"
     subprocess.run(
-        ["tmux", "new-window", "-n", window_name, "-d",
-         f"{sys.executable} {tui_script}"],
+        ["tmux", "new-window", "-n", window_name, "-d", cmd],
         capture_output=True, text=True,
     )
     print(f"  Approval TUI opened in tmux window: {window_name}")
@@ -1042,8 +1051,9 @@ def cmd_approve(args):
         return 0
 
     # Create new window with the TUI
+    cmd = f"{_venv_activate_prefix()}python3 {tui_script}"
     subprocess.run(
-        ["tmux", "new-window", "-n", window_name, f"{sys.executable} {tui_script}"],
+        ["tmux", "new-window", "-n", window_name, cmd],
         capture_output=True, text=True,
     )
     print(f"Opened approval TUI in tmux window: {window_name}")
