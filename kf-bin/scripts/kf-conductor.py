@@ -597,9 +597,35 @@ def auto_cleanup_completed():
 # Commands
 # ---------------------------------------------------------------------------
 
+def ensure_primary_worktree():
+    """Cd to the primary branch worktree so scripts can find .agent/kf/.
+
+    If we're in a bare repo root, a worker worktree, or anywhere that
+    doesn't have .agent/kf/, find the primary branch worktree and cd there.
+    Returns the path we switched to, or None if already in the right place.
+    """
+    # Already have .agent/kf/? We're fine.
+    if Path(".agent/kf").is_dir():
+        return None
+
+    # Try to find a worktree that has .agent/kf/
+    for wt in git.worktree_list():
+        candidate = Path(wt["path"]) / ".agent" / "kf"
+        if candidate.is_dir():
+            target = wt["path"]
+            os.chdir(target)
+            print(f"  Changed to worktree: {target}")
+            return target
+
+    # No worktree has .agent/kf/ — kf-setup hasn't been run yet.
+    # Stay where we are; dispatch will fail gracefully.
+    return None
+
+
 def cmd_start(args):
     """Start the manager loop — runs in the foreground."""
     check_tmux()
+    ensure_primary_worktree()
 
     # Check if already running
     if manager_is_alive():
@@ -742,6 +768,7 @@ def cmd_spawn(args):
 def cmd_dispatch(args):
     """One-shot dispatch (not the manager loop)."""
     check_tmux()
+    ensure_primary_worktree()
 
     max_w = args.max_workers if args.max_workers else get_max_workers()
     running = count_running_workers()
