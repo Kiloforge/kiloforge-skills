@@ -1,20 +1,20 @@
 ---
 name: kf-update
-description: Check for and apply Kiloforge updates — pulls latest skills repo and updates project CLI tools
+description: Check for and apply Kiloforge updates — pulls latest skills repo, updates skill definitions and project CLI tools
 metadata:
   argument-hint: "[--check]"
 ---
 
 # Kiloforge Update
 
-Check for new versions and update both the global skills repo and project-embedded CLI tools.
+Check for new versions and update everything: pull the skills repo, update skill definitions in `~/.claude/skills/`, and update project-embedded CLI tools in `.agent/kf/bin/`.
 
 ## Use this skill when
 
 - You want to check if updates are available
-- You want to update CLI tools to the latest version
-- A new tool has been added and you need it in the project
-- A bug fix was made to a CLI tool and you need the fix
+- You want to update skills and CLI tools to the latest version
+- A new skill or tool has been added and you need it
+- A bug fix was made and you need the fix
 
 ## Do not use this skill when
 
@@ -74,13 +74,18 @@ WARNING: Could not update skills repo at {skills_repo}.
 Proceeding with update from current local version.
 ```
 
-### Step 5 — Update project CLI tools
+### Step 5 — Update project and skills
 
 ```bash
 python3 "{skills_repo}/kf-bin/scripts/kf-install.py" --update --project-dir "$(pwd)"
 ```
 
-This copies the latest scripts and `lib/` from the skills repo into `.agent/kf/bin/`, rewrites shebangs to use the project-local venv, cleans up legacy scripts, and stamps the new version.
+This single command updates everything:
+- **Skill definitions** — copies SKILL.md files to `~/.claude/skills/` (new and changed skills)
+- **CLI scripts** — copies latest scripts to `.agent/kf/bin/`
+- **Shebangs** — rewrites to use project-local venv
+- **Legacy cleanup** — removes old non-.py scripts
+- **Version stamp** — records installed version in `.agent/kf/.version`
 
 ### Step 6 — Report
 
@@ -94,7 +99,8 @@ Previous:      {old_version_short} ({old_date})
 Updated to:    {new_version_short} ({new_date})
                {commit_subject}
 
-Updated CLI tools in .agent/kf/bin/ to latest version.
-Project metadata files were not modified.
+Skills:        {N} updated, {N} added
+CLI tools:     Updated in .agent/kf/bin/
+Metadata:      Not modified
 ================================================================================
 ```

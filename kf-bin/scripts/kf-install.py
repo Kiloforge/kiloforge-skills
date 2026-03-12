@@ -488,6 +488,46 @@ def rewrite_shebangs(project_dir: Path, venv_dir: Path):
     print(f"Rewrote shebangs in {count} script(s)")
 
 
+def copy_skills(skills_dir: Path, skills_target: Path) -> tuple[list[str], list[str]]:
+    """Copy skill SKILL.md files from the skills repo to the user's skills folder.
+
+    Returns (updated, added) lists of skill names.
+    """
+    updated = []
+    added = []
+
+    for skill_dir in sorted(skills_dir.iterdir()):
+        if not skill_dir.is_dir():
+            continue
+        skill_md = skill_dir / "SKILL.md"
+        if not skill_md.exists():
+            continue
+
+        skill_name = skill_dir.name
+        dst_dir = skills_target / skill_name
+        dst_file = dst_dir / "SKILL.md"
+
+        # Also copy any other files in the skill directory (resources, etc.)
+        is_new = not dst_dir.exists()
+        dst_dir.mkdir(parents=True, exist_ok=True)
+
+        changed = False
+        for src_file in skill_dir.iterdir():
+            if src_file.is_file():
+                dst = dst_dir / src_file.name
+                if dst.exists() and dst.read_bytes() == src_file.read_bytes():
+                    continue
+                shutil.copy2(src_file, dst)
+                changed = True
+
+        if is_new:
+            added.append(skill_name)
+        elif changed:
+            updated.append(skill_name)
+
+    return updated, added
+
+
 def clean_legacy(project_dir: Path) -> list[str]:
     """Remove old non-.py scripts that have been superseded."""
     bin_dir = project_dir / ".agent" / "kf" / "bin"
@@ -533,6 +573,10 @@ def main():
         "--primary-branch", default="main",
         help="Primary branch name for config.yaml (default: main)",
     )
+    parser.add_argument(
+        "--skills-target", default=None,
+        help="Where to install skill definitions (default: ~/.claude/skills)",
+    )
     args = parser.parse_args()
 
     project_dir = resolve_project_dir(args.project_dir)
@@ -555,9 +599,11 @@ def main():
     print("=" * 60)
     print(f"  Kiloforge — {mode}")
     print("=" * 60)
+    skills_target_display = Path(args.skills_target) if args.skills_target else Path.home() / ".claude" / "skills"
     print(f"  Skills repo:  {skills_dir}")
     print(f"  Project:      {project_dir}")
-    print(f"  Target:       {project_dir / '.agent' / 'kf'}")
+    print(f"  CLI target:   {project_dir / '.agent' / 'kf'}")
+    print(f"  Skills target: {skills_target_display}")
     print("=" * 60)
     print()
 
@@ -585,11 +631,23 @@ def main():
             print("  (all metadata files already exist)")
         print()
 
-    # Step 3: Copy scripts
-    print("Copying scripts...")
+    # Step 3: Copy scripts to project
+    print("Copying CLI scripts to .agent/kf/bin/...")
     copied = copy_scripts(skills_dir, project_dir)
     for name in copied:
         print(f"  {name}")
+    print()
+
+    # Step 3b: Copy skill definitions to user's skills folder
+    skills_target = Path(args.skills_target) if args.skills_target else Path.home() / ".claude" / "skills"
+    print(f"Updating skill definitions in {skills_target}...")
+    sk_updated, sk_added = copy_skills(skills_dir, skills_target)
+    if sk_added:
+        print(f"  Added {len(sk_added)} new skill(s): {', '.join(sk_added)}")
+    if sk_updated:
+        print(f"  Updated {len(sk_updated)} skill(s): {', '.join(sk_updated)}")
+    if not sk_added and not sk_updated:
+        print("  (all skills already up to date)")
     print()
 
     # Step 4: Rewrite shebangs
