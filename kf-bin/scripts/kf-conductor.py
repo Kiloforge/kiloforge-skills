@@ -32,7 +32,6 @@ import argparse
 import hashlib
 import json
 import os
-import shutil
 import subprocess
 import sys
 import time
@@ -128,13 +127,6 @@ def pid_alive(pid: int) -> bool:
         return True
     except (OSError, ProcessLookupError):
         return False
-
-
-def find_timeout_cmd() -> str:
-    for cmd in ["timeout", "gtimeout"]:
-        if shutil.which(cmd):
-            return cmd
-    return ""
 
 
 def worktree_path_for(worker: str) -> str | None:
@@ -345,28 +337,22 @@ def spawn_worker(worker: str, track_id: str, timeout_min: int) -> int:
         print(f"  ERROR: Track '{track_id}' already claimed.", file=sys.stderr)
         return 1
 
-    # Build command
-    prompt = f"/kf-developer {track_id}"
-    timeout_cmd = find_timeout_cmd()
-    timeout_sec = timeout_min * 60 if timeout_min else 0
-
-    claude_cmd = f'claude -p "{prompt}" --dangerously-skip-permissions'
-    if timeout_sec and timeout_cmd:
-        inner_cmd = f'{timeout_cmd} --kill-after=10 {timeout_sec} {claude_cmd}'
-    else:
-        inner_cmd = claude_cmd
+    # Build command — interactive mode so user can attach and interact
+    initial_prompt = f"/kf-developer {track_id}"
+    claude_cmd = (f'claude --dangerously-skip-permissions'
+                  f' --initial-prompt "{initial_prompt}"')
 
     sf = str(worker_status_file(worker))
     wrapper = (
         f'cd {wt_path} && '
-        f'{inner_cmd}; '
+        f'{claude_cmd}; '
         f'EC=$?; '
         f'python3 -c "'
         f"import json,sys,datetime;"
         f"f='{sf}';"
         f"d=json.load(open(f));"
         f"d['exit_code']=int(sys.argv[1]);"
-        f"d['state']='completed' if int(sys.argv[1])==0 else ('timeout' if int(sys.argv[1])==124 else 'failed');"
+        f"d['state']='completed' if int(sys.argv[1])==0 else 'failed';"
         f"d['finished']=datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ');"
         f"open(f,'w').write(json.dumps(d,indent=2)+'\\n')"
         f'" $EC'
@@ -378,7 +364,6 @@ def spawn_worker(worker: str, track_id: str, timeout_min: int) -> int:
         "tmux_session": tmux_session(),
         "tmux_window": worker,
         "pane_pid": None,
-        "timeout_seconds": timeout_sec,
         "started": now_iso(),
         "finished": None,
         "exit_code": None,
