@@ -319,11 +319,11 @@ class TrackState:
         track_script = os.path.join(SCRIPT_DIR, "kf-track.py")
 
         rc = subprocess.run(
-            [lock_script, "acquire", "--holder", "tui-approval", "--timeout", "30"],
+            [lock_script, "acquire", "--holder", "tui-approval", "--timeout", "0"],
             capture_output=True, text=True,
         )
         if rc.returncode != 0:
-            return False, f"Lock held: {rc.stderr.strip()}"
+            return False, f"Lock held — try again shortly"
 
         try:
             for tid, approved in self.changes.items():
