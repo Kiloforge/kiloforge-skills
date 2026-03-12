@@ -29,6 +29,81 @@ Initialize or resume Kiloforge project setup. This command creates foundational 
 
 ## Pre-flight Checks
 
+0. **Check for git repository:**
+
+   ```bash
+   git rev-parse --git-dir 2>/dev/null
+   ```
+
+   If this fails (not inside a git repo), present the clone options:
+
+   ```
+   This directory is not a git repository. How would you like to set up?
+
+   1. Standard clone — single working tree, simple workflow
+      Best for: solo development, small teams, straightforward projects
+
+   2. Worktree clone — bare repo with worktrees for parallel agents
+      Best for: multi-agent parallel development with kiloforge conductor
+
+   3. Initialize a new repo here (git init)
+   ```
+
+   **If the user chooses 1 (Standard clone):**
+
+   Ask for the repo URL:
+   ```
+   Enter the repository URL (e.g., git@github.com:org/repo.git):
+   ```
+
+   Then clone:
+   ```bash
+   git clone <url> .
+   ```
+   If the directory is not empty, clone into a subdirectory:
+   ```bash
+   git clone <url>
+   cd <repo-name>
+   ```
+
+   **If the user chooses 2 (Worktree clone):**
+
+   Ask for the repo URL:
+   ```
+   Enter the repository URL (e.g., git@github.com:org/repo.git):
+   ```
+
+   Then set up the bare repo + worktree structure:
+   ```bash
+   REPO_NAME=$(basename <url> .git)
+   git clone --bare <url> "${REPO_NAME}.git"
+   cd "${REPO_NAME}.git"
+
+   # Create the primary worktree
+   PRIMARY_BRANCH=$(git symbolic-ref HEAD | sed 's|refs/heads/||')
+   git worktree add "${PRIMARY_BRANCH}" "${PRIMARY_BRANCH}"
+   cd "${PRIMARY_BRANCH}"
+   ```
+
+   Inform the user:
+   ```
+   Bare repo created at: {path}/{REPO_NAME}.git
+   Primary worktree at:  {path}/{REPO_NAME}.git/{PRIMARY_BRANCH}
+
+   Worktrees for architect and developer agents will be created automatically
+   by the conductor. You are now in the primary worktree.
+   ```
+
+   Store `"clone_mode": "worktree"` in `setup_state.json` so the conductor knows the project uses the worktree model. Skip the primary branch question in step 1 — it was already determined from the bare repo HEAD.
+
+   **If the user chooses 3 (New repo):**
+
+   ```bash
+   git init
+   ```
+
+   Continue to step 1 as normal.
+
 1. **Determine primary branch:**
 
    The **primary branch** is the trunk branch used for coordination. All
