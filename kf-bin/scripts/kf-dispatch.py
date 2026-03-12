@@ -31,6 +31,8 @@ import subprocess
 import sys
 from collections import defaultdict
 
+import yaml
+
 
 def run(cmd, **kwargs):
     """Run a shell command, return stdout. Returns empty string on failure."""
@@ -106,15 +108,17 @@ def get_worktree_state():
 
 
 def parse_track_status(ref):
-    """Parse kf-track status output to get track lists."""
-    kf_bin = os.path.dirname(os.path.abspath(__file__))
-    output = run(f"{kf_bin}/kf-track.py list --all --json --ref {ref}")
+    """Parse tracks.yaml via git show and yaml.safe_load."""
+    output = run(f"git show {ref}:.agent/kf/tracks.yaml 2>/dev/null")
     if not output:
         return {}, [], [], [], []
 
     try:
-        tracks = json.loads(output)
-    except json.JSONDecodeError:
+        data = yaml.safe_load(output)
+    except yaml.YAMLError:
+        return {}, [], [], [], []
+
+    if not isinstance(data, dict):
         return {}, [], [], [], []
 
     all_tracks = {}
@@ -123,7 +127,10 @@ def parse_track_status(ref):
     claimed = []
     completed = []
 
-    for track_id, info in tracks.items():
+    for track_id, info in data.items():
+        if not isinstance(info, dict):
+            continue
+        info["id"] = track_id
         all_tracks[track_id] = info
         status = info.get("status", "")
         if status == "completed":
@@ -138,27 +145,38 @@ def parse_track_status(ref):
 
 
 def parse_deps(ref):
-    """Parse dependency graph."""
-    kf_bin = os.path.dirname(os.path.abspath(__file__))
-    output = run(f"{kf_bin}/kf-track.py deps show --json --ref {ref} 2>/dev/null")
+    """Parse deps.yaml via git show and yaml.safe_load."""
+    output = run(f"git show {ref}:.agent/kf/tracks/deps.yaml 2>/dev/null")
     if not output:
         return {}
+
     try:
-        return json.loads(output)
-    except json.JSONDecodeError:
+        data = yaml.safe_load(output)
+    except yaml.YAMLError:
         return {}
+
+    if not isinstance(data, dict):
+        return {}
+
+    # Ensure all values are lists
+    return {k: (v if isinstance(v, list) else []) for k, v in data.items()}
 
 
 def parse_conflicts(ref):
-    """Parse conflict pairs."""
-    kf_bin = os.path.dirname(os.path.abspath(__file__))
-    output = run(f"{kf_bin}/kf-track.py conflicts list --all --json --ref {ref} 2>/dev/null")
+    """Parse conflicts.yaml via git show and yaml.safe_load."""
+    output = run(f"git show {ref}:.agent/kf/tracks/conflicts.yaml 2>/dev/null")
     if not output:
         return {}
+
     try:
-        return json.loads(output)
-    except json.JSONDecodeError:
+        data = yaml.safe_load(output)
+    except yaml.YAMLError:
         return {}
+
+    if not isinstance(data, dict):
+        return {}
+
+    return data
 
 
 def classify_pending(all_tracks, deps, completed_set):
