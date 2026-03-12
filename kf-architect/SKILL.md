@@ -78,20 +78,29 @@ eval "$(.agent/kf/bin/kf-preflight.py)"
 
 This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
 
-Use `${PRIMARY_BRANCH}` everywhere a branch reference is needed — never hardcode `main`. All track state reads should come from the primary branch (via `git show ${PRIMARY_BRANCH}:<path>`) to see the latest committed state.
+Use `${PRIMARY_BRANCH}` everywhere a branch reference is needed — never hardcode `main`.
+
+### Step 1b — Create planning branch
+
+Create a planning branch from the latest primary branch. This ensures the architect works against the current state of the codebase, not a stale home branch.
+
+```bash
+PLAN_BRANCH="kf/plan/$(date -u +%Y%m%d-%H%M%SZ)"
+git checkout -b "$PLAN_BRANCH" "${PRIMARY_BRANCH}"
+```
+
+All track content commits happen on this branch. After merge, return to the home branch.
 
 ### Step 2 — Load project context
 
-Read all project context from the primary branch using `git show ${PRIMARY_BRANCH}:<path>` or `--ref ${PRIMARY_BRANCH}` on CLI commands. Do NOT use `git reset --hard` — this destroys the home branch state.
-
-Read all of these (from the primary branch):
+Read all of these (from the working tree, which is now at the latest primary branch state):
 
 1. **Product context:** `.agent/kf/product.yaml`
 2. **Product guidelines:** `.agent/kf/product-guidelines.yaml` (if exists)
 3. **Tech stack:** `.agent/kf/tech-stack.yaml`
-4. **Project index:** Run `.agent/kf/bin/kf-track.py index --ref ${PRIMARY_BRANCH}` (generated summary of all tracks)
-5. **Quick links:** Run `.agent/kf/bin/kf-track.py quick-links show --ref ${PRIMARY_BRANCH}` (navigation links)
-6. **Track states:** `.agent/kf/tracks.yaml` (YAML registry — use `.agent/kf/bin/kf-track.py list --ref ${PRIMARY_BRANCH}` to query)
+4. **Project index:** Run `.agent/kf/bin/kf-track.py index` (generated summary of all tracks)
+5. **Quick links:** Run `.agent/kf/bin/kf-track.py quick-links show` (navigation links)
+6. **Track states:** `.agent/kf/tracks.yaml` (YAML registry — use `.agent/kf/bin/kf-track.py list` to query)
 7. **Dependency graph:** `.agent/kf/tracks/deps.yaml` (adjacency list of track dependencies)
 8. **Code style guides:** `.agent/kf/code_styleguides/` (all files, if present)
 
@@ -475,6 +484,15 @@ REGISTRY_CMD="$REGISTRY_CMD; .agent/kf/bin/kf-track.py conflicts add {a} {b} {ri
 **Exit code 1** means the merge failed (lock released) — report and **HALT**.
 
 **Exit code 3** means unresolved rebase conflicts — lock is STILL HELD. Resolve the conflicts (`git add` + `git rebase --continue`), then re-run `kf-merge.py` (acquire is idempotent for the same holder). Only release the lock after merge completes or via explicit abort (`git rebase --abort && kf-merge-lock release`).
+
+### Step 11b — Return to home branch
+
+After successful merge, return to the home branch (recorded in Step 0) and delete the planning branch:
+
+```bash
+git checkout "${HOME_BRANCH}"
+git branch -d "$PLAN_BRANCH"
+```
 
 ---
 
