@@ -173,7 +173,7 @@ def ensure_gitignore(project_dir: Path):
     gitignore = project_dir / ".agent" / "kf" / ".gitignore"
     gitignore.parent.mkdir(parents=True, exist_ok=True)
 
-    entries_needed = [".venv", "__pycache__/"]
+    entries_needed = [".venv", "__pycache__/", "*.pyc"]
     existing = set()
     if gitignore.exists():
         existing = set(gitignore.read_text().splitlines())
@@ -466,7 +466,6 @@ def main():
     skip_venv = args.skip_venv or args.update
     if not skip_venv:
         venv_dir = ensure_venv(project_dir)
-        ensure_gitignore(project_dir)
         print()
     else:
         venv_dir = project_dir / ".agent" / "kf" / ".venv"
@@ -474,6 +473,9 @@ def main():
             print("Update mode — skipping venv setup")
         else:
             print("Skipping venv setup (--skip-venv)")
+
+    # Always ensure .gitignore is up to date (even in update mode)
+    ensure_gitignore(project_dir)
 
     # Step 2: Scaffold metadata (skip in update mode)
     if not args.update:
