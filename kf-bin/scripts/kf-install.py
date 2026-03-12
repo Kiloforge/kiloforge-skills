@@ -7,11 +7,13 @@ empty metadata scaffolding. Existing metadata files are never overwritten.
 USAGE:
     kf-install [OPTIONS]
     kf-install --update    # Update CLI tools only (skip scaffolding)
+    kf-install --check     # Check if an update is available
 
 OPTIONS:
     --project-dir DIR   Target project root (default: cwd)
     --skills-dir DIR    Path to kiloforge-skills repo (default: auto-detect)
     --update            Update mode: only copy scripts and lib (skip venv/metadata)
+    --check             Check for available updates (no changes made)
     --skip-venv         Skip venv creation/update
     --primary-branch B  Primary branch name for config.yaml (default: main)
 
@@ -19,6 +21,7 @@ Run from anywhere — it auto-detects the skills repo from its own location.
 """
 
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -74,6 +77,78 @@ def detect_skills_dir(script_path: Path) -> Path:
     return script_path.parent.parent.parent
 
 
+def get_skills_version(skills_dir: Path) -> dict:
+    """Get version info from the skills repo (git commit hash + date)."""
+    result = subprocess.run(
+        ["git", "-C", str(skills_dir), "log", "-1", "--format=%H%n%h%n%ci%n%s"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return {"hash": "unknown", "short": "unknown", "date": "", "subject": ""}
+    lines = result.stdout.strip().splitlines()
+    return {
+        "hash": lines[0] if len(lines) > 0 else "unknown",
+        "short": lines[1] if len(lines) > 1 else "unknown",
+        "date": lines[2] if len(lines) > 2 else "",
+        "subject": lines[3] if len(lines) > 3 else "",
+    }
+
+
+def get_installed_version(project_dir: Path) -> dict | None:
+    """Read the installed version from .agent/kf/.version."""
+    version_file = project_dir / ".agent" / "kf" / ".version"
+    if not version_file.exists():
+        return None
+    try:
+        return json.loads(version_file.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def stamp_version(project_dir: Path, skills_dir: Path):
+    """Write the current skills repo version to .agent/kf/.version."""
+    version = get_skills_version(skills_dir)
+    version["installed_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    version["skills_dir"] = str(skills_dir)
+    version_file = project_dir / ".agent" / "kf" / ".version"
+    version_file.parent.mkdir(parents=True, exist_ok=True)
+    version_file.write_text(json.dumps(version, indent=2) + "\n")
+
+
+def check_for_updates(project_dir: Path, skills_dir: Path) -> bool:
+    """Compare installed version with available version. Returns True if update available."""
+    installed = get_installed_version(project_dir)
+    available = get_skills_version(skills_dir)
+
+    print(f"Skills repo:  {skills_dir}")
+    print(f"Available:    {available['short']} ({available['date']})")
+    print(f"              {available['subject']}")
+    print()
+
+    if installed is None:
+        print("Installed:    (no version stamp — run install or update)")
+        return True
+
+    print(f"Installed:    {installed.get('short', 'unknown')} ({installed.get('date', '')})")
+    print(f"              {installed.get('subject', '')}")
+    print(f"              Installed at: {installed.get('installed_at', 'unknown')}")
+    print()
+
+    if installed.get("hash") == available["hash"]:
+        print("Already up to date.")
+        return False
+    else:
+        # Count commits between installed and available
+        result = subprocess.run(
+            ["git", "-C", str(skills_dir), "rev-list", "--count",
+             f"{installed.get('hash', 'HEAD~1')}..HEAD"],
+            capture_output=True, text=True,
+        )
+        count = result.stdout.strip() if result.returncode == 0 else "?"
+        print(f"Update available: {count} new commit(s)")
+        return True
+
+
 def ensure_venv(project_dir: Path) -> Path:
     """Create or update the project-local venv at .agent/kf/.venv."""
     venv_dir = project_dir / ".agent" / "kf" / ".venv"
@@ -122,7 +197,7 @@ def ensure_gitignore(project_dir: Path):
     gitignore = project_dir / ".agent" / "kf" / ".gitignore"
     gitignore.parent.mkdir(parents=True, exist_ok=True)
 
-    entries_needed = [".venv"]
+    entries_needed = [".venv", ".version"]
     existing = set()
     if gitignore.exists():
         existing = set(gitignore.read_text().splitlines())
@@ -308,6 +383,10 @@ def main():
         help="Update mode: only copy scripts and lib (skip venv/metadata)",
     )
     parser.add_argument(
+        "--check", action="store_true",
+        help="Check for available updates (no changes made)",
+    )
+    parser.add_argument(
         "--skip-venv", action="store_true",
         help="Skip venv creation/update",
     )
@@ -322,6 +401,15 @@ def main():
         skills_dir = Path(args.skills_dir).resolve()
     else:
         skills_dir = detect_skills_dir(Path(__file__).resolve())
+
+    # --check mode: just compare versions and exit
+    if args.check:
+        print("=" * 60)
+        print("  Kiloforge — Version Check")
+        print("=" * 60)
+        print()
+        has_update = check_for_updates(project_dir, skills_dir)
+        sys.exit(0 if has_update else 2)
 
     mode = "Update" if args.update else "Install"
 
@@ -381,9 +469,14 @@ def main():
     else:
         print("No legacy scripts to clean")
 
+    # Step 6: Stamp version
+    stamp_version(project_dir, skills_dir)
+    version = get_skills_version(skills_dir)
+    print(f"Version stamped: {version['short']} ({version['date']})")
+
     print()
     print("=" * 60)
-    print(f"  {mode} complete")
+    print(f"  {mode} complete — version {version['short']}")
     if not args.update:
         print()
         print("  Next: run /kf-setup to configure project metadata")

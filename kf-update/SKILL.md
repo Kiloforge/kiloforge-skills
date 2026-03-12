@@ -1,15 +1,18 @@
 ---
 name: kf-update
-description: Update Kiloforge CLI tools in the current project to the latest version from the skills repo
+description: Check for and apply Kiloforge updates — pulls latest skills repo and updates project CLI tools
+metadata:
+  argument-hint: "[--check]"
 ---
 
 # Kiloforge Update
 
-Update the CLI tools in `.agent/kf/bin/` to the latest version from the kiloforge-skills repo. Does not modify project metadata files.
+Check for new versions and update both the global skills repo and project-embedded CLI tools.
 
 ## Use this skill when
 
-- You want to update the CLI tools to the latest version
+- You want to check if updates are available
+- You want to update CLI tools to the latest version
 - A new tool has been added and you need it in the project
 - A bug fix was made to a CLI tool and you need the fix
 
@@ -30,33 +33,68 @@ ls .agent/kf/bin/*.py
 
 If not found, suggest `/kf-setup` instead. **HALT.**
 
-### Step 2 — Run the install script in update mode
+### Step 2 — Resolve the skills repo path
+
+The skills repo path is needed for both version checking and updating. Determine it from one of:
+
+1. `$SKILL_DIR/../kf-bin/scripts/kf-install.py` — if `$SKILL_DIR` is available
+2. The `.agent/kf/.version` file — contains `skills_dir` from last install
+3. Ask the user for the path
+
+### Step 3 — Check for updates
 
 ```bash
-python3 "$SKILL_DIR/../kf-bin/scripts/kf-install.py" --update --project-dir "$(pwd)"
+python3 "{skills_repo}/kf-bin/scripts/kf-install.py" --check --project-dir "$(pwd)"
 ```
 
-This copies the latest scripts and `lib/` from the skills repo into `.agent/kf/bin/`, rewrites shebangs to use the project-local venv, and cleans up any legacy non-.py scripts.
+Exit codes:
+- `0` — update available
+- `2` — already up to date
 
-The `$SKILL_DIR` variable resolves to the directory containing this skill's `SKILL.md`. The `kf-bin/scripts/` directory is at the skills repo root, inside `kf-bin`.
+If already up to date and the user did not pass `--check`, report and **STOP**:
 
-**If `$SKILL_DIR` is not available**, use `--skills-dir` to point at the kiloforge-skills repo:
+```
+Kiloforge is already up to date.
+```
+
+If the user passed `--check`, just report the version info and **STOP** (don't apply updates).
+
+### Step 4 — Pull latest skills repo
+
+Update the skills repo itself to get the newest skill definitions and scripts:
 
 ```bash
-python3 /path/to/kiloforge-skills/kf-bin/scripts/kf-install.py --update --project-dir "$(pwd)"
+git -C "{skills_repo}" pull --ff-only
 ```
 
-### Step 3 — Report
+If the pull fails (e.g., local changes, detached HEAD), warn:
+
+```
+WARNING: Could not update skills repo at {skills_repo}.
+Proceeding with update from current local version.
+```
+
+### Step 5 — Update project CLI tools
+
+```bash
+python3 "{skills_repo}/kf-bin/scripts/kf-install.py" --update --project-dir "$(pwd)"
+```
+
+This copies the latest scripts and `lib/` from the skills repo into `.agent/kf/bin/`, rewrites shebangs to use the project-local venv, cleans up legacy scripts, and stamps the new version.
+
+### Step 6 — Report
 
 ```
 ================================================================================
                     KILOFORGE UPDATE COMPLETE
 ================================================================================
 
+Skills repo:   {skills_repo}
+Previous:      {old_version_short} ({old_date})
+Updated to:    {new_version_short} ({new_date})
+               {commit_subject}
+
 Updated CLI tools in .agent/kf/bin/ to latest version.
-
-{output from kf-install.py}
-
 Project metadata files were not modified.
 ================================================================================
 ```
