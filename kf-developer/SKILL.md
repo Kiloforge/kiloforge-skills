@@ -42,7 +42,7 @@ This line is designed to survive compaction summaries. If you see it in your con
 
 ## Worktree Convention
 
-This agent is expected to run in a worktree whose folder name starts with `worker-` (e.g., `worker-1`, `worker-2`, `worker-3`). The corresponding branch name matches the folder name.
+This agent runs in a dedicated git worktree. The worktree folder name is the agent's identity and its **home branch** name. Naming conventions vary — worktrees may be named `kfc-<id>-worker-N` (conductor-managed), `developer-N`, `worker-N`, or any other name. The role (developer, architect, etc.) is determined by the skill invoked, **not** by the worktree name.
 
 ### Step 0 — Verify worktree identity and resolve primary branch
 
@@ -53,10 +53,9 @@ git rev-parse --git-dir 2>/dev/null
 git worktree list
 ```
 
-- The current branch should match `worker-*` (this is the **home branch**)
-- If not on a `worker-*` branch, warn but continue
+- Record the current branch — this is the **home branch**
 - Record the **primary branch worktree path** from `git worktree list` — needed for merge operations
-- Record the **home branch** (the `worker-*` branch) — to return to after merge
+- Record the **home branch** name — to return to after merge
 
 ---
 

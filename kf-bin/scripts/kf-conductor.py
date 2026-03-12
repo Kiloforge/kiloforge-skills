@@ -8,14 +8,15 @@ A persistent manager loop chews through the track queue, auto-dispatching
 new workers as others complete, respecting max_workers concurrency limits.
 
 USAGE:
-    kf-conductor start [--timeout MINUTES]     Start the manager loop
-    kf-conductor stop                          Graceful shutdown (finish current, no new)
-    kf-conductor suspend                       Pause dispatching (workers keep running)
-    kf-conductor resume                        Resume dispatching
-    kf-conductor status [--json]               Show manager + worker status
-    kf-conductor spawn <worker> <track-id>     Manually spawn a single worker
-    kf-conductor kill <worker>                 Kill a running worker
-    kf-conductor cleanup [--all|--completed]   Clean up finished workers
+    kf-conductor setup [--repo URL] [--dir DIR]  Set up environment (bare clone + worktrees)
+    kf-conductor start [--timeout MINUTES]       Start the manager loop
+    kf-conductor stop                            Graceful shutdown (finish current, no new)
+    kf-conductor suspend                         Pause dispatching (workers keep running)
+    kf-conductor resume                          Resume dispatching
+    kf-conductor status [--json]                 Show manager + worker status
+    kf-conductor spawn <worker> <track-id>       Manually spawn a single worker
+    kf-conductor kill <worker>                   Kill a running worker
+    kf-conductor cleanup [--all|--completed]     Clean up finished workers
 
 PREREQUISITES:
     - Must be running inside a tmux session
@@ -28,6 +29,7 @@ EXIT CODES:
 """
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -153,6 +155,60 @@ def get_max_workers() -> int:
             except (ValueError, KeyError):
                 pass
     return 4
+
+
+# ---------------------------------------------------------------------------
+# Instance identity
+# ---------------------------------------------------------------------------
+
+def generate_instance_id() -> str:
+    """Generate a short unique instance ID (6 hex chars)."""
+    raw = f"{os.getpid()}-{time.time_ns()}-{os.urandom(4).hex()}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:6]
+
+
+def instance_config_file() -> Path:
+    """Path to the instance config stored in the conductor dir."""
+    return conductor_dir() / "_instance.json"
+
+
+def read_instance() -> dict | None:
+    """Read the current instance config."""
+    cf = instance_config_file()
+    if not cf.exists():
+        return None
+    try:
+        return json.loads(cf.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def write_instance(data: dict):
+    """Write instance config."""
+    instance_config_file().write_text(json.dumps(data, indent=2) + "\n")
+
+
+def get_instance_id() -> str | None:
+    """Get the current instance ID, or None if not set up."""
+    inst = read_instance()
+    return inst.get("id") if inst else None
+
+
+def instance_prefix() -> str:
+    """Get the worktree name prefix for this instance.
+
+    Returns e.g. 'kfc-a3b2c1' or '' if no instance is configured.
+    """
+    iid = get_instance_id()
+    return f"kfc-{iid}" if iid else ""
+
+
+def worker_name(prefix: str, n: int) -> str:
+    """Build an instance-scoped worktree name.
+
+    e.g. kfc-a3b2c1-worker-1
+    """
+    return f"{prefix}-worker-{n}"
 
 
 # ---------------------------------------------------------------------------
@@ -700,6 +756,458 @@ def cmd_cleanup(args):
 
 
 # ---------------------------------------------------------------------------
+# Environment detection & setup
+# ---------------------------------------------------------------------------
+
+def detect_env() -> dict:
+    """Detect the current git environment.
+
+    Returns dict with:
+        type: "none" | "bare" | "repo" | "worktree"
+        git_common_dir: absolute path to the shared git dir (if in a repo)
+        toplevel: working tree root (if not bare)
+        primary_branch: detected primary branch name
+        worktrees: list from git worktree list
+        bare_dir: path to bare repo (if bare)
+    """
+    result = subprocess.run(
+        ["git", "rev-parse", "--git-dir"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return {"type": "none"}
+
+    # Check bare
+    is_bare = subprocess.run(
+        ["git", "rev-parse", "--is-bare-repository"],
+        capture_output=True, text=True,
+    ).stdout.strip() == "true"
+
+    if is_bare:
+        git_dir = os.path.abspath(
+            subprocess.run(
+                ["git", "rev-parse", "--git-dir"],
+                capture_output=True, text=True,
+            ).stdout.strip()
+        )
+        worktrees = git.worktree_list()
+        return {
+            "type": "bare",
+            "bare_dir": git_dir,
+            "git_common_dir": git_dir,
+            "worktrees": worktrees,
+        }
+
+    toplevel = os.path.abspath(
+        subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True,
+        ).stdout.strip()
+    )
+
+    common_dir = os.path.abspath(
+        subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            capture_output=True, text=True,
+        ).stdout.strip()
+    )
+
+    abs_git_dir = os.path.abspath(
+        subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            capture_output=True, text=True,
+        ).stdout.strip()
+    )
+
+    worktrees = git.worktree_list()
+    env_type = "worktree" if abs_git_dir != common_dir else "repo"
+
+    return {
+        "type": env_type,
+        "toplevel": toplevel,
+        "git_common_dir": common_dir,
+        "worktrees": worktrees,
+    }
+
+
+def detect_primary_branch(env: dict) -> str:
+    """Detect the primary branch from remote HEAD or common names."""
+    # Try remote HEAD
+    result = subprocess.run(
+        ["git", "symbolic-ref", "refs/remotes/origin/HEAD"],
+        capture_output=True, text=True,
+    )
+    if result.returncode == 0:
+        ref = result.stdout.strip()
+        return ref.split("/")[-1]
+
+    # Try common names
+    for name in ["main", "master"]:
+        result = subprocess.run(
+            ["git", "rev-parse", "--verify", f"refs/heads/{name}"],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            return name
+
+    return "main"
+
+
+def list_instance_worktrees(worktrees: list[dict], prefix: str = "") -> list[dict]:
+    """Filter worktrees belonging to this conductor instance.
+
+    If prefix is given, matches that prefix. Otherwise matches any kfc- prefix
+    or legacy worker-/developer-/architect- prefixes.
+    """
+    if prefix:
+        return [
+            wt for wt in worktrees
+            if os.path.basename(wt["path"]).startswith(prefix + "-worker-")
+        ]
+    # Fallback: match any conductor or legacy worker naming
+    return [
+        wt for wt in worktrees
+        if os.path.basename(wt["path"]).startswith(
+            ("kfc-", "worker-", "developer-", "architect-"))
+    ]
+
+
+def prompt_user(prompt: str, default: str = "") -> str:
+    """Prompt user for input with optional default."""
+    if default:
+        prompt = f"{prompt} [{default}]: "
+    else:
+        prompt = f"{prompt}: "
+    val = input(prompt).strip()
+    return val if val else default
+
+
+def prompt_yes_no(prompt: str, default: bool = True) -> bool:
+    """Prompt user for yes/no."""
+    suffix = " [Y/n]: " if default else " [y/N]: "
+    val = input(prompt + suffix).strip().lower()
+    if not val:
+        return default
+    return val in ("y", "yes")
+
+
+def bare_clone(repo_url: str, target_dir: str) -> int:
+    """Clone a repo as bare into target_dir/.bare with .git pointer."""
+    target = Path(target_dir)
+    target.mkdir(parents=True, exist_ok=True)
+    bare_path = target / ".bare"
+
+    print(f"Cloning {repo_url} (bare)...")
+    result = subprocess.run(
+        ["git", "clone", "--bare", repo_url, str(bare_path)],
+        capture_output=False,
+    )
+    if result.returncode != 0:
+        print("ERROR: git clone failed.", file=sys.stderr)
+        return 1
+
+    # Write .git file pointing to .bare
+    git_file = target / ".git"
+    git_file.write_text("gitdir: ./.bare\n")
+
+    # Disable bare mode so worktree commands work
+    subprocess.run(
+        ["git", "-C", str(target), "config", "core.bare", "false"],
+        capture_output=True,
+    )
+
+    # Fix remote fetch refspec (bare clones don't fetch all branches by default)
+    subprocess.run(
+        ["git", "-C", str(target), "config", "remote.origin.fetch",
+         "+refs/heads/*:refs/remotes/origin/*"],
+        capture_output=True,
+    )
+
+    # Fetch so all remote branches are visible
+    subprocess.run(
+        ["git", "-C", str(target), "fetch", "origin"],
+        capture_output=True,
+    )
+
+    print(f"Bare repo created at {bare_path}")
+    return 0
+
+
+def create_worktrees(base_dir: str, primary_branch: str, prefix: str,
+                     num_workers: int) -> list[str]:
+    """Create worktrees for primary branch and instance-scoped workers.
+
+    Workers are named: {prefix}-worker-1, {prefix}-worker-2, etc.
+    Returns list of created worktree names.
+    """
+    created = []
+    base = Path(base_dir)
+
+    # Primary branch worktree
+    main_wt = base / primary_branch
+    if not main_wt.exists():
+        print(f"Creating worktree: {primary_branch}")
+        result = subprocess.run(
+            ["git", "-C", str(base), "worktree", "add",
+             str(main_wt), primary_branch],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            created.append(primary_branch)
+        else:
+            print(f"  WARNING: Failed to create {primary_branch} worktree: "
+                  f"{result.stderr.strip()}")
+
+    # Worker worktrees
+    for i in range(1, num_workers + 1):
+        name = worker_name(prefix, i)
+        wt_path = base / name
+        if wt_path.exists():
+            continue
+        print(f"Creating worktree: {name}")
+        result = subprocess.run(
+            ["git", "-C", str(base), "worktree", "add",
+             str(wt_path), "-b", name, primary_branch],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            created.append(name)
+        else:
+            # Branch may already exist from a previous setup
+            result2 = subprocess.run(
+                ["git", "-C", str(base), "worktree", "add",
+                 str(wt_path), name],
+                capture_output=True, text=True,
+            )
+            if result2.returncode == 0:
+                created.append(name)
+            else:
+                print(f"  WARNING: Failed to create {name}: "
+                      f"{result.stderr.strip()}")
+
+    return created
+
+
+def print_env_summary(env: dict, primary_branch: str, inst_prefix: str = ""):
+    """Print a summary of the detected environment."""
+    worktrees = env.get("worktrees", [])
+    inst_workers = list_instance_worktrees(worktrees, inst_prefix)
+
+    print("=" * 60)
+    print("  ENVIRONMENT")
+    print("=" * 60)
+    print(f"  Type:            {env['type']}")
+    if env.get("bare_dir"):
+        print(f"  Bare repo:       {env['bare_dir']}")
+    if env.get("toplevel"):
+        print(f"  Working tree:    {env['toplevel']}")
+    if inst_prefix:
+        print(f"  Instance:        {inst_prefix}")
+    print(f"  Primary branch:  {primary_branch}")
+    print(f"  Worktrees:       {len(worktrees)} total")
+    print(f"  Workers:         {len(inst_workers)}")
+
+    if worktrees:
+        print()
+        for wt in worktrees:
+            name = os.path.basename(wt["path"])
+            branch = wt.get("branch", "detached")
+            marker = " *" if inst_prefix and name.startswith(inst_prefix) else ""
+            print(f"    {name:30s}  {branch}{marker}")
+
+    print("=" * 60)
+
+
+def cmd_setup(args):
+    """Set up the conductor environment: bare clone + worktrees."""
+    env = detect_env()
+    env_type = env["type"]
+
+    # Generate or reuse instance ID
+    existing_inst = read_instance()
+    if existing_inst and not args.new_instance:
+        iid = existing_inst["id"]
+        prefix = f"kfc-{iid}"
+        print(f"Existing conductor instance: {prefix}")
+    else:
+        iid = generate_instance_id()
+        prefix = f"kfc-{iid}"
+        print(f"New conductor instance: {prefix}")
+
+    # -------------------------------------------------------------------
+    # Case 1: Not in a git repo — need to clone
+    # -------------------------------------------------------------------
+    if env_type == "none":
+        print("No git repository detected.\n")
+
+        repo_url = args.repo
+        if not repo_url:
+            repo_url = prompt_user("Repository URL to clone")
+            if not repo_url:
+                print("ERROR: No repository URL provided.", file=sys.stderr)
+                return 1
+
+        # Location
+        use_cwd = True
+        if not args.dir:
+            cwd_empty = not any(
+                p for p in Path(".").iterdir()
+                if not p.name.startswith(".")
+            )
+            if cwd_empty:
+                use_cwd = prompt_yes_no(
+                    f"Set up in current directory ({os.getcwd()})?")
+            else:
+                print(f"Current directory ({os.getcwd()}) is not empty.")
+                use_cwd = False
+
+        if args.dir:
+            target_dir = os.path.abspath(args.dir)
+        elif use_cwd:
+            target_dir = os.getcwd()
+        else:
+            target_dir = prompt_user("Directory to set up in")
+            if not target_dir:
+                print("ERROR: No directory provided.", file=sys.stderr)
+                return 1
+            target_dir = os.path.abspath(target_dir)
+
+        num_workers = args.workers if args.workers else int(
+            prompt_user("Number of workers", "4"))
+
+        # Clone
+        rc = bare_clone(repo_url, target_dir)
+        if rc != 0:
+            return rc
+
+        # Detect primary branch from the new clone
+        os.chdir(target_dir)
+        primary_branch = detect_primary_branch(env)
+
+        # Create worktrees
+        created = create_worktrees(
+            target_dir, primary_branch, prefix, num_workers)
+
+        # Save instance config
+        write_instance({
+            "id": iid,
+            "prefix": prefix,
+            "created": now_iso(),
+            "base_dir": target_dir,
+            "primary_branch": primary_branch,
+            "num_workers": num_workers,
+        })
+
+        print()
+        env = detect_env()
+        print_env_summary(env, primary_branch, prefix)
+        print()
+
+        # Suggest next steps
+        main_wt = Path(target_dir) / primary_branch
+        print("Next steps:")
+        print(f"  cd {main_wt}")
+        print(f"  /kf-setup          # Initialize Kiloforge project artifacts")
+        print(f"  /kf-conductor start # Start the manager loop")
+        return 0
+
+    # -------------------------------------------------------------------
+    # Case 2: In a bare repo — create worktrees
+    # -------------------------------------------------------------------
+    if env_type == "bare":
+        primary_branch = detect_primary_branch(env)
+        print(f"Bare repository detected at: {env['bare_dir']}")
+        print()
+
+        inst_workers = list_instance_worktrees(
+            env.get("worktrees", []), prefix)
+
+        if inst_workers:
+            print(f"Found {len(inst_workers)} worker(s) for instance {prefix}.")
+            print_env_summary(env, primary_branch, prefix)
+            if not prompt_yes_no("Create additional workers?", default=False):
+                return 0
+
+        # Determine base directory for worktrees
+        bare_path = Path(env["bare_dir"])
+        base_dir = str(bare_path.parent) if bare_path.name == ".bare" \
+            else str(bare_path.parent)
+
+        num_workers = args.workers if args.workers else int(
+            prompt_user("Number of workers", "4"))
+
+        created = create_worktrees(
+            base_dir, primary_branch, prefix, num_workers)
+
+        # Save instance config
+        write_instance({
+            "id": iid,
+            "prefix": prefix,
+            "created": now_iso(),
+            "base_dir": base_dir,
+            "primary_branch": primary_branch,
+            "num_workers": num_workers,
+        })
+
+        print()
+        env = detect_env()
+        print_env_summary(env, primary_branch, prefix)
+        return 0
+
+    # -------------------------------------------------------------------
+    # Case 3: In a regular repo or worktree
+    # -------------------------------------------------------------------
+    primary_branch = detect_primary_branch(env)
+    worktrees = env.get("worktrees", [])
+    inst_workers = list_instance_worktrees(worktrees, prefix)
+
+    if env_type == "worktree":
+        print(f"Inside a worktree: {env['toplevel']}")
+    else:
+        print(f"Git repository detected: {env['toplevel']}")
+
+    print()
+    print_env_summary(env, primary_branch, prefix)
+    print()
+
+    if inst_workers:
+        print(f"Found {len(inst_workers)} worker(s) for instance {prefix}.")
+        if not prompt_yes_no("Create additional workers?", default=False):
+            return 0
+
+    # Figure out where to put new worktrees — sibling directories
+    toplevel = Path(env["toplevel"])
+    base_dir = str(toplevel.parent)
+
+    num_workers = args.workers if args.workers else int(
+        prompt_user("Number of workers", "4"))
+
+    created = create_worktrees(
+        base_dir, primary_branch, prefix, num_workers)
+
+    # Save instance config
+    write_instance({
+        "id": iid,
+        "prefix": prefix,
+        "created": now_iso(),
+        "base_dir": base_dir,
+        "primary_branch": primary_branch,
+        "num_workers": num_workers,
+    })
+
+    if created:
+        print(f"\nCreated {len(created)} worktree(s): {', '.join(created)}")
+    else:
+        print("\nNo new worktrees needed — all already exist.")
+
+    # Refresh and show summary
+    env = detect_env()
+    print()
+    print_env_summary(env, primary_branch, prefix)
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -747,6 +1255,14 @@ def main():
     p_cleanup.add_argument("--completed", action="store_true", help="Clean only completed")
     p_cleanup.add_argument("--failed", action="store_true", help="Clean only failed/timed-out")
 
+    # setup
+    p_setup = sub.add_parser("setup", help="Set up conductor environment (bare clone + worktrees)")
+    p_setup.add_argument("--repo", help="Repository URL to clone")
+    p_setup.add_argument("--dir", help="Target directory (default: current)")
+    p_setup.add_argument("--workers", type=int, default=0, help="Number of worker worktrees")
+    p_setup.add_argument("--new-instance", action="store_true",
+                         help="Force a new instance ID (ignore existing)")
+
     sub.add_parser("help", help="Show help")
 
     args = parser.parse_args()
@@ -756,6 +1272,7 @@ def main():
         return 0
 
     handlers = {
+        "setup": cmd_setup,
         "start": cmd_start,
         "stop": cmd_stop,
         "suspend": cmd_suspend,

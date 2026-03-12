@@ -2,7 +2,7 @@
 name: kf-conductor
 description: Tmux-based multi-agent orchestration — persistent manager loop that auto-dispatches, monitors, and manages parallel Claude Code workers
 metadata:
-  argument-hint: "[start | stop | suspend | resume | status | dispatch | spawn <worker> <track> | kill <worker> | cleanup]"
+  argument-hint: "[setup | start | stop | suspend | resume | status | dispatch | spawn <worker> <track> | kill <worker> | cleanup]"
 ---
 
 # Kiloforge Conductor
@@ -11,6 +11,7 @@ Orchestrate parallel Claude Code worker agents using tmux. A persistent manager 
 
 ## Use this skill when
 
+- You want to set up a new conductor environment from scratch
 - You want to start the manager loop to automatically process the track queue
 - You want to dispatch multiple developer agents in parallel
 - You need to monitor running workers
@@ -18,18 +19,65 @@ Orchestrate parallel Claude Code worker agents using tmux. A persistent manager 
 
 ## Do not use this skill when
 
-- Not running inside a tmux session
-- No worktrees exist (create them first)
-- The project is not initialized with Kiloforge
+- Not running inside a tmux session (except for `setup`)
+- The project is not initialized with Kiloforge (use `setup` + `/kf-setup` first)
 
 ## Prerequisites
 
-- **tmux**: Must be running inside a tmux session
+- **tmux**: Must be running inside a tmux session (for `start`, `spawn`, `dispatch`)
 - **claude CLI**: Must be available on PATH
-- **Git worktrees**: Worker worktrees (e.g., `developer-1`, `developer-2`) must exist
-- **Kiloforge initialized**: `.agent/kf/` must be set up
+- **Git worktrees**: Created automatically by `setup`, or manually
 
 ## Instructions
+
+### Environment Setup
+
+Before starting the manager, set up the conductor environment. This detects your current context and creates the necessary worktrees.
+
+#### From scratch (no git repo)
+
+```bash
+kf-conductor.py setup --repo https://github.com/org/repo.git
+```
+
+This will:
+1. Ask whether to set up in the current directory or a new one
+2. Bare-clone the repo into `.bare/` with a `.git` pointer
+3. Create worktrees: primary branch, architect(s), and developers
+4. Report the environment and suggest next steps
+
+#### From an existing repo or worktree
+
+```bash
+kf-conductor.py setup
+```
+
+Detects whether you're in a regular repo, bare repo, or worktree and creates any missing worker worktrees.
+
+#### Non-interactive
+
+```bash
+kf-conductor.py setup --repo <url> --dir /path/to/project --workers 4
+```
+
+#### Instance Identity
+
+Each `setup` generates a unique instance ID (e.g., `kfc-a3b2c1`). All worktrees for that instance are prefixed with this ID, allowing multiple conductor instances to share the same git repo without conflicting worktrees.
+
+#### Directory Layout (bare clone)
+
+```
+project/
+  .bare/                    ← bare git repository
+  .git                      ← file: "gitdir: ./.bare"
+  main/                     ← worktree for primary branch
+  kfc-a3b2c1-worker-1/      ← worker worktree (instance-scoped)
+  kfc-a3b2c1-worker-2/      ← worker worktree
+  kfc-a3b2c1-worker-3/      ← worker worktree
+  ...
+```
+
+Workers are generic — the skill invoked on a worker (`/kf-developer`, `/kf-architect`, etc.) determines its role, not the worktree name.
 
 ### Quick Start — Manager Loop (Recommended)
 
@@ -73,7 +121,7 @@ This runs `kf-dispatch` to compute assignments, spawns workers, then exits.
 .agent/kf/bin/kf-conductor.py spawn <worker-name> <track-id> --timeout 30
 ```
 
-- `worker-name` must match an existing worktree (e.g., `developer-1`)
+- `worker-name` must match an existing worktree (e.g., `kfc-a3b2c1-worker-1`)
 - The track must not be claimed by another worker
 - Creates a tmux window named after the worker
 - Worker runs `claude -p "/kf-developer <track-id>"` autonomously
@@ -148,8 +196,8 @@ Or for more control, run dispatch manually:
 .agent/kf/bin/kf-dispatch.py
 
 # Spawn workers individually
-.agent/kf/bin/kf-conductor.py spawn developer-1 track_20260312T000000Z --timeout 30
-.agent/kf/bin/kf-conductor.py spawn developer-2 track_20260312T000001Z --timeout 30
+.agent/kf/bin/kf-conductor.py spawn kfc-a3b2c1-worker-1 track_20260312T000000Z --timeout 30
+.agent/kf/bin/kf-conductor.py spawn kfc-a3b2c1-worker-2 track_20260312T000001Z --timeout 30
 ```
 
 #### Phase 3 — Monitor
@@ -163,7 +211,7 @@ Poll status periodically:
 Or watch a specific worker's output:
 
 ```bash
-tmux capture-pane -t developer-1 -p | tail -20
+tmux capture-pane -t kfc-a3b2c1-worker-1 -p | tail -20
 ```
 
 #### Phase 4 — Handle Results
@@ -178,7 +226,7 @@ After workers finish:
 .agent/kf/bin/kf-conductor.py cleanup --completed
 
 # Handle failures — check what went wrong
-tmux capture-pane -t developer-3 -p | tail -50
+tmux capture-pane -t kfc-a3b2c1-worker-3 -p | tail -50
 
 # Re-dispatch if new tracks are unblocked
 .agent/kf/bin/kf-conductor.py dispatch --timeout 30
@@ -263,12 +311,12 @@ Both are shared across all worktrees in the repo.
 
 ## Creating Worktrees
 
-If you need more workers:
+Use `setup` to create additional workers for the current instance:
 
 ```bash
-# From the main worktree
-git worktree add ../developer-3 -b developer-3
-git worktree add ../developer-4 -b developer-4
+.agent/kf/bin/kf-conductor.py setup --workers 6
 ```
 
-Worktree folder names must start with `worker-` or `developer-` to be recognized by dispatch.
+This creates any missing worker worktrees up to the specified count, using the current instance prefix (e.g., `kfc-a3b2c1-worker-5`, `kfc-a3b2c1-worker-6`).
+
+Legacy worktree names (`worker-*`, `developer-*`) are also recognized by dispatch for backward compatibility.
