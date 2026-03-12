@@ -354,19 +354,17 @@ Developer is ready for next track.
 
 If the `--auto-exit` flag was provided, exit the session after completion:
 
-1. If a delay was specified (e.g., `--auto-exit=30`), wait that many seconds first — this gives the user a window to intervene or review the output
-2. Then run `/exit` to terminate the Claude session
+1. Print a countdown notice so the user knows the session will close:
+   ```
+   Auto-exit in {N} seconds. Type anything to cancel.
+   ```
+2. If a delay was specified (e.g., `--auto-exit=30`), wait that many seconds first — this gives the user a window to intervene or review the output
+3. **If the user sends any message during the countdown, cancel the auto-exit** — the user wants to continue interacting. Acknowledge with: `Auto-exit cancelled.`
+4. If no user input is received during the delay, run `/exit` to terminate the session
 
-```bash
-# If --auto-exit=30 was provided:
-sleep 30
-/exit
+If `--auto-exit` with no value was provided, exit immediately (no delay, no cancellation window).
 
-# If --auto-exit with no value:
-/exit
-```
-
-If `--auto-exit` was **not** provided, remain in the interactive session — the user may want to review, ask questions, or start another task.
+If `--auto-exit` was **not** provided, remain in the interactive session.
 
 ---
 
