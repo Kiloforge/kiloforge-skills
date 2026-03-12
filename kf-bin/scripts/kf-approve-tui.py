@@ -38,6 +38,9 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
+from lib import merge_lock
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -136,23 +139,6 @@ def load_manager_state():
         return None
 
 
-def load_lock_state():
-    """Check if the merge lock is currently held."""
-    common = git_common_dir()
-    if not common:
-        return None
-    lock_dir = Path(common) / "merge.lock"
-    if lock_dir.is_dir():
-        info_file = lock_dir / "info"
-        if info_file.exists():
-            try:
-                return info_file.read_text().strip()
-            except OSError:
-                return "locked (unknown holder)"
-        return "locked"
-    return None
-
-
 def load_worker_statuses():
     """Read all conductor worker status files."""
     common = git_common_dir()
@@ -249,7 +235,7 @@ class TrackState:
         self.last_commit = ""
         self.manager = None
         self.workers = []
-        self.lock_info = None  # None = unlocked, str = holder info
+        self.lock_info = None  # None = unlocked, dict = merge_lock.status()
         self.refresh()
 
     def refresh(self):
@@ -259,7 +245,7 @@ class TrackState:
         self.last_commit = get_head_commit(self.ref)
         self.manager = load_manager_state()
         self.workers = load_worker_statuses()
-        self.lock_info = load_lock_state()
+        self.lock_info = merge_lock.status()
 
     def has_changes(self):
         return bool(self.changes)
@@ -315,17 +301,12 @@ class TrackState:
         if not self.changes:
             return True, "No changes to save"
 
-        lock_script = os.path.join(SCRIPT_DIR, "kf-merge-lock.py")
-        track_script = os.path.join(SCRIPT_DIR, "kf-track.py")
-
-        rc = subprocess.run(
-            [lock_script, "acquire", "--holder", "tui-approval", "--timeout", "0"],
-            capture_output=True, text=True,
-        )
-        if rc.returncode != 0:
-            return False, f"Lock held — try again shortly"
+        holder = "tui-approval"
+        if not merge_lock.acquire(holder):
+            return False, "Lock held — try again shortly"
 
         try:
+            track_script = os.path.join(SCRIPT_DIR, "kf-track.py")
             for tid, approved in self.changes.items():
                 cmd = "approve" if approved else "disapprove"
                 subprocess.run(
@@ -345,10 +326,7 @@ class TrackState:
             self.refresh()
             return True, "Saved"
         finally:
-            subprocess.run(
-                [lock_script, "release", "--holder", "tui-approval"],
-                capture_output=True, text=True,
-            )
+            merge_lock.release(holder)
 
 
 # ---------------------------------------------------------------------------
@@ -639,7 +617,8 @@ def tui_main(stdscr, ref):
         # Lock indicator on line 1
         lock_offset = len(mgr_line) + len(mgr_state) + len(worker_summary)
         if state.lock_info:
-            lock_str = "  🔒 LOCKED"
+            lock_holder = state.lock_info.get("holder", "?")
+            lock_str = f"  LOCKED ({lock_holder})"
             safe_addnstr(stdscr, 1, lock_offset, lock_str, w - 1, C_RED | curses.A_BOLD)
 
         # Line 2: active worker details
