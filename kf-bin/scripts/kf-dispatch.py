@@ -61,6 +61,17 @@ def get_primary_branch():
     return pb if pb else "main"
 
 
+def get_config(ref):
+    """Read config.yaml from the primary branch."""
+    output = run(f"git show {ref}:.agent/kf/config.yaml 2>/dev/null")
+    if not output:
+        return {}
+    try:
+        return yaml.safe_load(output) or {}
+    except yaml.YAMLError:
+        return {}
+
+
 def get_worktree_state():
     """Scan git worktrees and classify workers."""
     output = run("git worktree list --porcelain")
@@ -192,13 +203,15 @@ def parse_active_claims():
         return set()
 
 
-def classify_pending(all_tracks, deps, completed_set, claimed_tracks=None):
-    """Classify pending tracks as available or blocked based on deps and claims."""
+def classify_pending(all_tracks, deps, completed_set, claimed_tracks=None,
+                     require_approval=False):
+    """Classify pending tracks as available or blocked based on deps, claims, and approval."""
     if claimed_tracks is None:
         claimed_tracks = set()
 
     available = []
     blocked = []
+    unapproved = []
 
     for track_id, info in all_tracks.items():
         if info.get("status") != "pending":
@@ -206,6 +219,11 @@ def classify_pending(all_tracks, deps, completed_set, claimed_tracks=None):
 
         # Skip tracks that are actively claimed (even if tracks.yaml still says pending)
         if track_id in claimed_tracks:
+            continue
+
+        # Skip unapproved tracks when approval is required
+        if require_approval and not info.get("approved", False):
+            unapproved.append({"id": track_id, **info})
             continue
 
         track_deps = deps.get(track_id, [])
@@ -216,7 +234,7 @@ def classify_pending(all_tracks, deps, completed_set, claimed_tracks=None):
         else:
             available.append({"id": track_id, **info})
 
-    return available, blocked
+    return available, blocked, unapproved
 
 
 def compute_priority(track, all_tracks, deps, conflicts, claimed_ids, active_types):
@@ -309,12 +327,18 @@ def main():
     active_claims = parse_active_claims()
     claimed_set |= active_claims
 
+    # Read config for approval requirement
+    config = get_config(ref)
+    require_approval = config.get("require_approval", False)
+
     # Read deps and conflicts
     deps = parse_deps(ref)
     conflicts = parse_conflicts(ref)
 
-    # Classify pending tracks (exclude actively claimed tracks)
-    available, blocked = classify_pending(all_tracks, deps, completed_set, active_claims)
+    # Classify pending tracks (exclude actively claimed and unapproved tracks)
+    available, blocked, unapproved = classify_pending(
+        all_tracks, deps, completed_set, active_claims, require_approval
+    )
 
     # Get active worker types
     active_types = set()
@@ -400,6 +424,7 @@ def main():
                 "blocked": len(blocked),
                 "claimed": len(claimed),
                 "completed": len(completed),
+                "unapproved": len(unapproved),
             },
             "active_workers": [
                 {"folder": w["folder"], "branch": w["branch"]}
@@ -425,7 +450,8 @@ def main():
     print("=" * 80)
     print()
     print(f"Workers: {len(idle)} idle, {len(active)} active, {len(idle) + len(active) + len(unknown)} total")
-    print(f"Tracks:  {len(available)} available, {len(blocked)} blocked, {len(claimed)} in-progress")
+    unapproved_str = f", {len(unapproved)} awaiting approval" if unapproved else ""
+    print(f"Tracks:  {len(available)} available, {len(blocked)} blocked, {len(claimed)} in-progress{unapproved_str}")
     print()
 
     if active:
@@ -473,6 +499,16 @@ def main():
         for b in blocked:
             waiting = ", ".join(b["unmet_deps"])
             print(f"  {b['id']} — waiting on: {waiting}")
+        print()
+
+    if unapproved:
+        print("--- AWAITING APPROVAL " + "-" * 57)
+        print()
+        for u in unapproved:
+            print(f"  {u['id']} — {u.get('title', '')}")
+        print()
+        print(f"  Approve via: kf-track approve <track-id>")
+        print(f"  Or use the TUI: kf-conductor approve")
         print()
 
     if not idle:

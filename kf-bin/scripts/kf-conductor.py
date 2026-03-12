@@ -991,6 +991,40 @@ def cmd_cleanup(args):
     return 0
 
 
+def cmd_approve(args):
+    """Open the track approval TUI in its own tmux window."""
+    tui_script = os.path.join(BIN_DIR, "kf-approve-tui.py")
+    if not Path(tui_script).exists():
+        print(f"ERROR: TUI script not found: {tui_script}", file=sys.stderr)
+        return 1
+
+    session = tmux_session()
+    if not session:
+        # Not in tmux — run directly in current terminal
+        return subprocess.run([sys.executable, tui_script]).returncode
+
+    window_name = "kf-approve"
+
+    # Check if window already exists
+    result = subprocess.run(
+        ["tmux", "list-windows", "-F", "#{window_name}"],
+        capture_output=True, text=True,
+    )
+    if window_name in result.stdout.split("\n"):
+        # Select existing window
+        subprocess.run(["tmux", "select-window", "-t", window_name])
+        print(f"Switched to existing {window_name} window")
+        return 0
+
+    # Create new window with the TUI
+    subprocess.run(
+        ["tmux", "new-window", "-n", window_name, f"{sys.executable} {tui_script}"],
+        capture_output=True, text=True,
+    )
+    print(f"Opened approval TUI in tmux window: {window_name}")
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # Environment detection & setup
 # ---------------------------------------------------------------------------
@@ -1518,6 +1552,9 @@ def main():
     p_setup.add_argument("--new-instance", action="store_true",
                          help="Force a new instance ID (ignore existing)")
 
+    # approve (TUI)
+    sub.add_parser("approve", help="Open track approval TUI in a tmux window")
+
     sub.add_parser("help", help="Show help")
 
     args = parser.parse_args()
@@ -1537,6 +1574,7 @@ def main():
         "dispatch": cmd_dispatch,
         "kill": cmd_kill,
         "cleanup": cmd_cleanup,
+        "approve": cmd_approve,
     }
     return handlers[args.command](args)
 

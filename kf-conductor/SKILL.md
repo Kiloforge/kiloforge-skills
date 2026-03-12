@@ -2,7 +2,7 @@
 name: kf-conductor
 description: Tmux-based multi-agent orchestration — persistent manager loop that auto-dispatches, monitors, and manages parallel Claude Code workers
 metadata:
-  argument-hint: "[setup | start | stop | suspend | resume | status | dispatch | spawn <worker> <track> | kill <worker> | cleanup]"
+  argument-hint: "[setup | start | stop | suspend | resume | status | dispatch | approve | spawn <worker> <track> | kill <worker> | cleanup]"
 ---
 
 # Kiloforge Conductor
@@ -112,6 +112,38 @@ For a single dispatch cycle without the persistent loop:
 ```
 
 This runs `kf-dispatch` to compute assignments, spawns workers, then exits.
+
+### Track Approval
+
+When `require_approval: true` is set in `.agent/kf/config.yaml`, tracks must be explicitly approved before workers can pick them up. Open the approval TUI:
+
+```bash
+.agent/kf/bin/kf-conductor.py approve
+```
+
+This opens a curses-based TUI in its own tmux window with three sections:
+- **Backlog** — unapproved pending tracks
+- **Approved** — approved pending tracks (ready for dispatch)
+- **In-Progress** — tracks currently being worked on
+
+**TUI keys:**
+- `↑`/`↓` or `j`/`k` — Navigate
+- `SPACE` — Toggle approval on highlighted track
+- `ENTER` — View full track details (spec, plan, etc.)
+- `a` — Approve all backlog tracks
+- `u` — Unapprove all approved tracks
+- `s` — Save changes (acquires merge lock, commits to primary branch)
+- `r` — Manual refresh
+- `q` — Quit (prompts to save if unsaved changes)
+
+The TUI auto-refreshes when new commits land on the primary branch (e.g., when an architect merges new tracks).
+
+You can also approve tracks via CLI:
+
+```bash
+.agent/kf/bin/kf-track.py approve <track-id>
+.agent/kf/bin/kf-track.py disapprove <track-id>
+```
 
 ### Manual Operations
 
