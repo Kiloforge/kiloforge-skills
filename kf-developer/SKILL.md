@@ -323,9 +323,6 @@ VERIFY_CMD="<commands from workflow.yaml>"
 After `kf-merge` succeeds:
 
 ```bash
-# Release the worktree claim lock
-.agent/kf/bin/kf-claim.py release
-
 # Return to developer home branch
 git checkout {worker-home-branch}
 
@@ -334,6 +331,8 @@ for b in $(git branch --list "kf/stash/{trackId}/*" | sed 's/^[* ]*//'); do
   git branch -D "$b"
 done
 ```
+
+**Do NOT release the worktree claim here.** The claim acts as a guard against re-dispatch — it prevents `kf-dispatch` from assigning this track to another worker before the merge has propagated on the primary branch. The conductor's auto-cleanup releases the claim after verifying the track is marked completed on the primary branch.
 
 Report:
 
