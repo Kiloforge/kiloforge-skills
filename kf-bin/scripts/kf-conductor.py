@@ -1234,6 +1234,26 @@ def bare_clone(repo_url: str, target_dir: str) -> int:
         capture_output=True,
     )
 
+    # Detach HEAD so worktrees can checkout the primary branch.
+    # A bare clone's HEAD points to the default branch, which blocks
+    # `git worktree add <branch>` with "already used by worktree".
+    head_ref = subprocess.run(
+        ["git", "-C", str(target), "symbolic-ref", "HEAD"],
+        capture_output=True, text=True,
+    )
+    if head_ref.returncode == 0:
+        branch_ref = head_ref.stdout.strip()
+        commit = subprocess.run(
+            ["git", "-C", str(target), "rev-parse", branch_ref],
+            capture_output=True, text=True,
+        )
+        if commit.returncode == 0:
+            subprocess.run(
+                ["git", "-C", str(target), "update-ref", "--no-deref",
+                 "HEAD", commit.stdout.strip()],
+                capture_output=True,
+            )
+
     print(f"Bare repo created at {bare_path}")
     return 0
 

@@ -78,9 +78,16 @@ Initialize or resume Kiloforge project setup. This command creates foundational 
    ```bash
    git clone --bare <url> .bare
    echo "gitdir: ./.bare" > .git
+   git config core.bare false
+   git config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
+   git fetch origin
+
+   # Detach HEAD so worktrees can checkout the primary branch.
+   # A bare clone's HEAD points to the default branch, blocking worktree add.
+   PRIMARY_BRANCH=$(git symbolic-ref HEAD | sed 's|refs/heads/||')
+   git update-ref --no-deref HEAD $(git rev-parse HEAD)
 
    # Create the primary worktree
-   PRIMARY_BRANCH=$(git -C .bare symbolic-ref HEAD | sed 's|refs/heads/||')
    git worktree add "${PRIMARY_BRANCH}" "${PRIMARY_BRANCH}"
    cd "${PRIMARY_BRANCH}"
    ```

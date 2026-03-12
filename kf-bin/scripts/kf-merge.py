@@ -175,6 +175,10 @@ def main():
     result = run(["git", "branch", "--show-current"], capture=True)
     current_branch = result.stdout.strip()
 
+    if current_branch == primary_branch:
+        die(f"Cannot merge: you are already on the primary branch ({primary_branch}). "
+            f"Agents must work on their own branch, not the primary branch directly.")
+
     print(f"Merge: {current_branch} -> {primary_branch} (holder: {args.holder})")
 
     # ── Step 2: Locate primary branch worktree ───────────────────────────────
