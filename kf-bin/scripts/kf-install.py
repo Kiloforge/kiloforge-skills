@@ -130,6 +130,23 @@ def resolve_project_dir(raw_path: str) -> Path:
     return path
 
 
+def is_skills_repo(path: Path) -> bool:
+    """Check if a path is a valid kiloforge-skills git repo.
+
+    Must be a git repo containing kf-bin/scripts/*.py at the repo root.
+    This distinguishes the actual repo from ~/.claude/skills/ which has
+    kf-bin/ as a skill subdirectory (not a repo root).
+    """
+    if not (path / "kf-bin" / "scripts").is_dir():
+        return False
+    # Verify it's actually a git repo
+    result = subprocess.run(
+        ["git", "-C", str(path), "rev-parse", "--git-dir"],
+        capture_output=True, text=True,
+    )
+    return result.returncode == 0
+
+
 def get_skills_version(skills_dir: Path) -> dict:
     """Get version info from the skills repo (git commit hash + date)."""
     result = subprocess.run(
@@ -269,9 +286,14 @@ def check_for_updates(project_dir: Path, skills_dir: Path) -> bool:
     print(f"              Installed at: {installed.get('installed_at', 'unknown')}")
     print()
 
-    if installed.get("hash") == available["hash"]:
+    if installed.get("hash") == available["hash"] and available["hash"] != "unknown":
         print("Already up to date.")
         return False
+
+    if available["hash"] == "unknown":
+        print("WARNING: Could not determine available version from skills repo")
+        print(f"         Is {skills_dir} a valid git repository?")
+        return True
 
     # Count commits between installed and available
     count = "?"
@@ -584,6 +606,24 @@ def main():
         skills_dir = Path(args.skills_dir).resolve()
     else:
         skills_dir = detect_skills_dir(Path(__file__).resolve())
+
+    # Validate skills_dir is actually a kiloforge-skills repo
+    if not is_skills_repo(skills_dir):
+        # Try to recover from the .version file
+        installed = get_installed_version(project_dir)
+        recovered = False
+        if installed and installed.get("skills_dir"):
+            candidate = Path(installed["skills_dir"])
+            if is_skills_repo(candidate):
+                print(f"WARNING: {skills_dir} is not a kiloforge-skills repo", file=sys.stderr)
+                print(f"Using skills repo from .version: {candidate}", file=sys.stderr)
+                skills_dir = candidate
+                recovered = True
+        if not recovered:
+            print(f"ERROR: {skills_dir} is not a kiloforge-skills repo.", file=sys.stderr)
+            print("Expected to find kf-bin/scripts/ inside it.", file=sys.stderr)
+            print("Use --skills-dir to specify the correct path.", file=sys.stderr)
+            sys.exit(1)
 
     # --check mode: just compare versions and exit
     if args.check:
