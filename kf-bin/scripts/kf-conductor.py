@@ -1018,21 +1018,43 @@ def print_env_summary(env: dict, primary_branch: str, inst_prefix: str = ""):
     print("=" * 60)
 
 
+def _resolve_target_dir(args) -> str | None:
+    """Ask the user where to set up. Returns absolute path or None."""
+    if args.dir:
+        return os.path.abspath(args.dir)
+
+    cwd = os.getcwd()
+    cwd_empty = not any(
+        p for p in Path(".").iterdir() if not p.name.startswith(".")
+    )
+
+    if cwd_empty:
+        choice = prompt_user(
+            f"Set up in current directory ({cwd}) or a new location?\n"
+            f"  1) Current directory\n"
+            f"  2) New location\n"
+            f"Choice", "1")
+    else:
+        print(f"Current directory ({cwd}) is not empty.")
+        choice = prompt_user(
+            f"  1) Use current directory anyway\n"
+            f"  2) New location\n"
+            f"Choice", "2")
+
+    if choice == "1":
+        return cwd
+
+    new_dir = prompt_user("Directory path")
+    if not new_dir:
+        print("ERROR: No directory provided.", file=sys.stderr)
+        return None
+    return os.path.abspath(new_dir)
+
+
 def cmd_setup(args):
     """Set up the conductor environment: bare clone + worktrees."""
     env = detect_env()
     env_type = env["type"]
-
-    # Generate or reuse instance ID
-    existing_inst = read_instance()
-    if existing_inst and not args.new_instance:
-        iid = existing_inst["id"]
-        prefix = f"kfc-{iid}"
-        print(f"Existing conductor instance: {prefix}")
-    else:
-        iid = generate_instance_id()
-        prefix = f"kfc-{iid}"
-        print(f"New conductor instance: {prefix}")
 
     # -------------------------------------------------------------------
     # Case 1: Not in a git repo — need to clone
@@ -1047,33 +1069,17 @@ def cmd_setup(args):
                 print("ERROR: No repository URL provided.", file=sys.stderr)
                 return 1
 
-        # Location
-        use_cwd = True
-        if not args.dir:
-            cwd_empty = not any(
-                p for p in Path(".").iterdir()
-                if not p.name.startswith(".")
-            )
-            if cwd_empty:
-                use_cwd = prompt_yes_no(
-                    f"Set up in current directory ({os.getcwd()})?")
-            else:
-                print(f"Current directory ({os.getcwd()}) is not empty.")
-                use_cwd = False
-
-        if args.dir:
-            target_dir = os.path.abspath(args.dir)
-        elif use_cwd:
-            target_dir = os.getcwd()
-        else:
-            target_dir = prompt_user("Directory to set up in")
-            if not target_dir:
-                print("ERROR: No directory provided.", file=sys.stderr)
-                return 1
-            target_dir = os.path.abspath(target_dir)
+        target_dir = _resolve_target_dir(args)
+        if not target_dir:
+            return 1
 
         num_workers = args.workers if args.workers else int(
             prompt_user("Number of workers", "4"))
+
+        # Generate instance ID (no existing instance possible outside a repo)
+        iid = generate_instance_id()
+        prefix = f"kfc-{iid}"
+        print(f"New conductor instance: {prefix}")
 
         # Clone
         rc = bare_clone(repo_url, target_dir)
@@ -1088,7 +1094,7 @@ def cmd_setup(args):
         created = create_worktrees(
             target_dir, primary_branch, prefix, num_workers)
 
-        # Save instance config
+        # Save instance config (now that we have a git repo)
         write_instance({
             "id": iid,
             "prefix": prefix,
@@ -1110,6 +1116,19 @@ def cmd_setup(args):
         print(f"  /kf-setup          # Initialize Kiloforge project artifacts")
         print(f"  /kf-conductor start # Start the manager loop")
         return 0
+
+    # -------------------------------------------------------------------
+    # From here we are in a git repo — instance config is accessible
+    # -------------------------------------------------------------------
+    existing_inst = read_instance()
+    if existing_inst and not args.new_instance:
+        iid = existing_inst["id"]
+        prefix = f"kfc-{iid}"
+        print(f"Existing conductor instance: {prefix}")
+    else:
+        iid = generate_instance_id()
+        prefix = f"kfc-{iid}"
+        print(f"New conductor instance: {prefix}")
 
     # -------------------------------------------------------------------
     # Case 2: In a bare repo — create worktrees
