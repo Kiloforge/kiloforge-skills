@@ -468,6 +468,13 @@ def spawn_worker(worker: str, track_id: str, timeout_min: int) -> int:
             capture_output=True, text=True,
         )
 
+    # Ensure pane closes when the wrapper shell exits (even if remain-on-exit is on globally)
+    pane_target = f"{window_name}.{pane_index}"
+    subprocess.run(
+        ["tmux", "set-option", "-p", "-t", pane_target, "remain-on-exit", "off"],
+        capture_output=True, text=True,
+    )
+
     # Get PID of the new pane
     pane_pid = tmux_pane_pid_at(window_name, pane_index)
 

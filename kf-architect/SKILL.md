@@ -494,15 +494,33 @@ Dependency order (if applicable):
 
 If the `--auto-exit` flag was provided, exit the session after the handoff summary:
 
-1. Print a countdown notice so the user knows the session will close:
+1. Resolve the tmux pane target for this worker:
+   ```bash
+   WORKER_NAME=$(basename $(pwd))
+   STATUS_FILE="$(git rev-parse --git-common-dir)/kf-conductor/${WORKER_NAME}.json"
+   if [ -f "$STATUS_FILE" ]; then
+     TMUX_WINDOW=$(python3 -c "import json; d=json.load(open('$STATUS_FILE')); print(d.get('tmux_window',''))")
+     PANE_INDEX=$(python3 -c "import json; d=json.load(open('$STATUS_FILE')); print(d.get('pane_index',''))")
+     PANE_TARGET="${TMUX_WINDOW}.${PANE_INDEX}"
+   fi
+   ```
+2. Print a countdown notice so the user knows the session will close:
    ```
    Auto-exit in {N} seconds. Type anything to cancel.
    ```
-2. If a delay was specified (e.g., `--auto-exit=30`), wait that many seconds first — this gives the user a window to intervene or review the output
-3. **If the user sends any message during the countdown, cancel the auto-exit** — the user wants to continue interacting. Acknowledge with: `Auto-exit cancelled.`
-4. If no user input is received during the delay, run `/exit` to terminate the session
+3. If a delay was specified (e.g., `--auto-exit=30`), wait that many seconds first — this gives the user a window to intervene or review the output
+4. **If the user sends any message during the countdown, cancel the auto-exit** — the user wants to continue interacting. Acknowledge with: `Auto-exit cancelled.`
+5. If no user input is received during the delay, kill the tmux pane:
+   ```bash
+   tmux kill-pane -t "${PANE_TARGET}"
+   ```
 
-If `--auto-exit` with no value was provided, exit immediately (no delay, no cancellation window).
+If `--auto-exit` with no value was provided, kill the pane immediately (no delay):
+```bash
+tmux kill-pane -t "${PANE_TARGET}"
+```
+
+If no status file is found (not running under conductor), fall back to just stopping the response.
 
 If `--auto-exit` was **not** provided, remain in the interactive session.
 
