@@ -77,6 +77,58 @@ def detect_skills_dir(script_path: Path) -> Path:
     return script_path.parent.parent.parent
 
 
+def resolve_project_dir(raw_path: str) -> Path:
+    """Resolve the project directory, handling worktrees and bare repos.
+
+    Uses git to find the working tree root. This handles:
+    - Normal repo root (returns as-is)
+    - Subdirectory of a repo (returns repo root)
+    - Git worktree (returns worktree root, not the main repo)
+    - Bare repo (errors — no working tree to install into)
+    """
+    path = Path(raw_path).resolve()
+
+    # Try git rev-parse --show-toplevel from the given path
+    result = subprocess.run(
+        ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
+        capture_output=True, text=True,
+    )
+    if result.returncode == 0:
+        return Path(result.stdout.strip())
+
+    # Check if this is a bare repo
+    result = subprocess.run(
+        ["git", "-C", str(path), "rev-parse", "--is-bare-repository"],
+        capture_output=True, text=True,
+    )
+    if result.returncode == 0 and result.stdout.strip() == "true":
+        # Bare repo — list worktrees and suggest using one
+        wt_result = subprocess.run(
+            ["git", "-C", str(path), "worktree", "list", "--porcelain"],
+            capture_output=True, text=True,
+        )
+        worktrees = []
+        if wt_result.returncode == 0:
+            for line in wt_result.stdout.splitlines():
+                if line.startswith("worktree "):
+                    wt_path = line[len("worktree "):]
+                    # Skip the bare repo itself
+                    if wt_path != str(path):
+                        worktrees.append(wt_path)
+
+        print("ERROR: Cannot install into a bare repository.", file=sys.stderr)
+        if worktrees:
+            print("Use --project-dir to target a worktree:", file=sys.stderr)
+            for wt in worktrees:
+                print(f"  --project-dir {wt}", file=sys.stderr)
+        else:
+            print("Create a worktree first, then target it with --project-dir.", file=sys.stderr)
+        sys.exit(1)
+
+    # Not a git repo at all — use the path as-is (new project, pre-git-init)
+    return path
+
+
 def get_skills_version(skills_dir: Path) -> dict:
     """Get version info from the skills repo (git commit hash + date)."""
     result = subprocess.run(
@@ -396,7 +448,7 @@ def main():
     )
     args = parser.parse_args()
 
-    project_dir = Path(args.project_dir).resolve()
+    project_dir = resolve_project_dir(args.project_dir)
     if args.skills_dir:
         skills_dir = Path(args.skills_dir).resolve()
     else:
