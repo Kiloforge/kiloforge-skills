@@ -134,7 +134,14 @@ This opens a curses-based TUI in its own tmux window with three sections:
 - `u` — Unapprove all approved tracks
 - `s` — Save changes (acquires merge lock, commits to primary branch)
 - `r` — Manual refresh
+- `F5` — Start manager (dispatch loop)
+- `F6` — Suspend manager (pause dispatching)
+- `F7` — Resume manager
+- `F8` — Stop manager (graceful shutdown)
+- `h` / `?` — Show help panel with all keybindings
 - `q` — Quit (prompts to save if unsaved changes)
+
+The header shows the manager state (running/suspended/stopping/stopped), active worker count, and merge lock status (locked/unlocked).
 
 The TUI auto-refreshes when new commits land on the primary branch (e.g., when an architect merges new tracks).
 
