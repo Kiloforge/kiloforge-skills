@@ -337,15 +337,17 @@ def spawn_worker(worker: str, track_id: str, timeout_min: int) -> int:
         print(f"  ERROR: Track '{track_id}' already claimed.", file=sys.stderr)
         return 1
 
-    # Build command — interactive mode so user can attach and interact
+    # Build command — interactive mode so user can attach and interact.
+    # We launch claude in the tmux window, then send the prompt via
+    # send-keys so it arrives as user input in the interactive session.
     initial_prompt = f"/kf-developer {track_id}"
-    claude_cmd = (f'claude --dangerously-skip-permissions'
-                  f' --initial-prompt "{initial_prompt}"')
 
     sf = str(worker_status_file(worker))
+    # The wrapper: cd into worktree, run claude interactively, then
+    # update the status file with the exit code when claude exits.
     wrapper = (
         f'cd {wt_path} && '
-        f'{claude_cmd}; '
+        f'claude --dangerously-skip-permissions; '
         f'EC=$?; '
         f'python3 -c "'
         f"import json,sys,datetime;"
@@ -371,6 +373,7 @@ def spawn_worker(worker: str, track_id: str, timeout_min: int) -> int:
     }
     write_worker_status(worker, status_data)
 
+    # Create tmux window with claude
     result = subprocess.run(
         ["tmux", "new-window", "-n", worker, wrapper],
         capture_output=True, text=True,
@@ -384,6 +387,13 @@ def spawn_worker(worker: str, track_id: str, timeout_min: int) -> int:
     if pane:
         status_data["pane_pid"] = pane
         write_worker_status(worker, status_data)
+
+    # Wait for claude to initialize, then send the prompt
+    time.sleep(2)
+    subprocess.run(
+        ["tmux", "send-keys", "-t", worker, initial_prompt, "Enter"],
+        capture_output=True, text=True,
+    )
 
     return 0
 

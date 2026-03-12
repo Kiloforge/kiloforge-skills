@@ -124,7 +124,8 @@ This runs `kf-dispatch` to compute assignments, spawns workers, then exits.
 - `worker-name` must match an existing worktree (e.g., `kfc-a3b2c1-worker-1`)
 - The track must not be claimed by another worker
 - Creates a tmux window named after the worker
-- Worker runs `claude --dangerously-skip-permissions --initial-prompt "/kf-developer <track-id>"` interactively
+- Worker runs `claude --dangerously-skip-permissions
+# then receives "/kf-developer <track-id>" via tmux send-keys` interactively
 
 #### Check Status
 
@@ -250,7 +251,8 @@ After cleanup and re-dispatch, loop back to Phase 3 until all tracks are done.
 Each spawned worker runs:
 
 ```
-claude --dangerously-skip-permissions --initial-prompt "/kf-developer <track-id>"
+claude --dangerously-skip-permissions
+# then receives "/kf-developer <track-id>" via tmux send-keys
 ```
 
 The worker:
