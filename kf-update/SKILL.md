@@ -30,30 +30,29 @@ ls .agent/kf/bin/*.py
 
 If not found, suggest `/kf-setup` instead. **HALT.**
 
-### Step 2 — Pull latest skills repo
+### Step 2 — Fetch latest skills repo
+
+Clone the skills repo to a temporary directory:
 
 ```bash
-git -C "$SKILL_DIR/.." pull --ff-only
+KF_TMPDIR=$(mktemp -d)
+git clone --depth 1 https://github.com/Kiloforge/kiloforge-skills.git "$KF_TMPDIR/kiloforge-skills"
 ```
 
-If the pull fails (e.g., local changes, detached HEAD), warn but continue:
-
-```
-WARNING: Could not pull latest skills repo. Updating from current local version.
-```
+If the clone fails, **HALT** — the update cannot proceed without the latest source.
 
 ### Step 3 — Run the install script in update mode
 
 ```bash
-python3 "$SKILL_DIR/../kf-bin/scripts/kf-install.py" --update --project-dir "$(pwd)"
+python3 "$KF_TMPDIR/kiloforge-skills/kf-bin/scripts/kf-install.py" --update --project-dir "$(pwd)"
 ```
 
 This replaces skill definitions in `~/.claude/skills/`, CLI scripts in `.agent/kf/bin/`, updates `.gitignore`, and cleans up legacy scripts.
 
-**If `$SKILL_DIR` is not available**, use `--skills-dir`:
+### Step 3b — Clean up
 
 ```bash
-python3 /path/to/kiloforge-skills/kf-bin/scripts/kf-install.py --update --project-dir "$(pwd)"
+rm -rf "$KF_TMPDIR"
 ```
 
 ### Step 4 — Commit and merge to primary branch
