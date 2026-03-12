@@ -2,7 +2,7 @@
 name: kf-developer
 description: Receive a track ID, validate it is an active unclaimed track, then implement it following the kiloforge workflow. Worker role in the track generation => approval => push to worker pipeline.
 metadata:
-  argument-hint: "<track-id> [--disable-auto-merge]"
+  argument-hint: "<track-id> [--disable-auto-merge] [--auto-exit[=SECONDS]]"
 ---
 
 # Kiloforge Developer
@@ -350,6 +350,24 @@ Developer is ready for next track.
 ================================================================================
 ```
 
+### Step 11d — Auto-exit (if `--auto-exit` was provided)
+
+If the `--auto-exit` flag was provided, exit the session after completion:
+
+1. If a delay was specified (e.g., `--auto-exit=30`), wait that many seconds first — this gives the user a window to intervene or review the output
+2. Then run `/exit` to terminate the Claude session
+
+```bash
+# If --auto-exit=30 was provided:
+sleep 30
+/exit
+
+# If --auto-exit with no value:
+/exit
+```
+
+If `--auto-exit` was **not** provided, remain in the interactive session — the user may want to review, ask questions, or start another task.
+
 ---
 
 ## Error Handling Summary
@@ -377,6 +395,8 @@ Developer is ready for next track.
 |------|--------|
 | (none) | Default: implement, auto-merge (poll branch lock if held) |
 | `--disable-auto-merge` | Pause after implementation; wait for explicit "merge" command |
+| `--auto-exit` | Exit the session after completion (default: immediate) |
+| `--auto-exit=30` | Wait 30 seconds after completion, then exit |
 
 ## Environment Variables
 

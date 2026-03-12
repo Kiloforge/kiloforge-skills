@@ -2,7 +2,7 @@
 name: kf-architect
 description: "Project architect: research the codebase and distill feature requests into well-scoped kiloforge tracks with specs and implementation plans. Splits large work into multiple tracks (including BE/FE splits). Merges track artifacts to the primary branch so developer workers can claim them."
 metadata:
-  argument-hint: "<prompt describing the desired feature/change>"
+  argument-hint: "<prompt describing the desired feature/change> [--auto-exit[=SECONDS]]"
 ---
 
 # Kiloforge Architect
@@ -489,6 +489,24 @@ Dependency order (if applicable):
 
 ================================================================================
 ```
+
+### Step 13 — Auto-exit (if `--auto-exit` was provided)
+
+If the `--auto-exit` flag was provided, exit the session after the handoff summary:
+
+1. If a delay was specified (e.g., `--auto-exit=30`), wait that many seconds first — this gives the user a window to intervene or review the output
+2. Then run `/exit` to terminate the Claude session
+
+```bash
+# If --auto-exit=30 was provided:
+sleep 30
+/exit
+
+# If --auto-exit with no value:
+/exit
+```
+
+If `--auto-exit` was **not** provided, remain in the interactive session — the user may want to review, ask questions, or start another task.
 
 ---
 

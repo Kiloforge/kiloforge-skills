@@ -418,7 +418,7 @@ def spawn_worker(worker: str, track_id: str, timeout_min: int) -> int:
         return 1
 
     # Build wrapper command
-    initial_prompt = f"/kf-developer {track_id}"
+    initial_prompt = f"/kf-developer {track_id} --auto-exit=10"
     sf = str(worker_status_file(worker))
     wrapper = (
         f'cd {wt_path} && '
