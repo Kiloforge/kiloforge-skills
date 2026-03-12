@@ -21,6 +21,7 @@ Run from anywhere — it auto-detects the skills repo from its own location.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -157,6 +158,67 @@ def get_installed_version(project_dir: Path) -> dict | None:
         return None
 
 
+def detect_installed_version(project_dir: Path, skills_dir: Path) -> dict | None:
+    """Try to detect installed version by comparing files against skills repo git history.
+
+    When no .version stamp exists (manual copy, pre-stamp install), compare
+    installed scripts against the skills repo's git history to find the
+    closest matching commit.
+    """
+    bin_dir = project_dir / ".agent" / "kf" / "bin"
+    src_dir = skills_dir / "kf-bin" / "scripts"
+
+    if not bin_dir.is_dir() or not src_dir.is_dir():
+        return None
+
+    # Hash installed scripts (ignoring shebangs which get rewritten)
+    def hash_script(path: Path) -> str:
+        text = path.read_text()
+        # Strip shebang line — it varies per install
+        lines = text.split("\n", 1)
+        body = lines[1] if len(lines) > 1 and lines[0].startswith("#!") else text
+        return hashlib.sha256(body.encode()).hexdigest()
+
+    installed_hashes = {}
+    for f in sorted(bin_dir.glob("*.py")):
+        try:
+            installed_hashes[f.name] = hash_script(f)
+        except OSError:
+            continue
+
+    if not installed_hashes:
+        return None
+
+    # Hash current skills repo scripts
+    current_hashes = {}
+    for f in sorted(src_dir.glob("*.py")):
+        try:
+            current_hashes[f.name] = hash_script(f)
+        except OSError:
+            continue
+
+    # Compare: if all installed scripts match current, they're at HEAD
+    if installed_hashes == current_hashes:
+        version = get_skills_version(skills_dir)
+        version["detected"] = True
+        return version
+
+    # Check for partial match (some files match, some don't)
+    common = set(installed_hashes) & set(current_hashes)
+    if common:
+        matching = sum(1 for k in common if installed_hashes[k] == current_hashes[k])
+        total = len(common)
+        if matching == total:
+            # All common files match but sets differ (new scripts added)
+            version = get_skills_version(skills_dir)
+            version["detected"] = True
+            version["note"] = f"scripts match HEAD but {len(current_hashes) - len(installed_hashes)} new script(s) available"
+            return version
+
+    return {"hash": "unknown", "short": "unknown", "detected": True,
+            "note": f"{len(installed_hashes)} scripts installed, content differs from current"}
+
+
 def stamp_version(project_dir: Path, skills_dir: Path):
     """Write the current skills repo version to .agent/kf/.version."""
     version = get_skills_version(skills_dir)
@@ -178,8 +240,29 @@ def check_for_updates(project_dir: Path, skills_dir: Path) -> bool:
     print()
 
     if installed is None:
-        print("Installed:    (no version stamp — run install or update)")
-        return True
+        # No stamp — try to detect version by comparing file contents
+        detected = detect_installed_version(project_dir, skills_dir)
+        if detected is None:
+            print("Installed:    (not installed)")
+            return True
+        elif detected.get("hash") == "unknown":
+            note = detected.get("note", "version unknown")
+            print(f"Installed:    (no version stamp — {note})")
+            print("              Run /kf-update to establish version tracking")
+            return True
+        elif detected.get("hash") == available["hash"]:
+            note = detected.get("note", "")
+            if note:
+                print(f"Installed:    {detected['short']} ({detected.get('date', '')}) [detected]")
+                print(f"              {note}")
+                return True
+            print(f"Installed:    {detected['short']} ({detected.get('date', '')}) [detected]")
+            print()
+            print("Already up to date (no version stamp — will be created on next update)")
+            return False
+        else:
+            print(f"Installed:    {detected['short']} ({detected.get('date', '')}) [detected]")
+            return True
 
     print(f"Installed:    {installed.get('short', 'unknown')} ({installed.get('date', '')})")
     print(f"              {installed.get('subject', '')}")
@@ -189,16 +272,20 @@ def check_for_updates(project_dir: Path, skills_dir: Path) -> bool:
     if installed.get("hash") == available["hash"]:
         print("Already up to date.")
         return False
-    else:
-        # Count commits between installed and available
+
+    # Count commits between installed and available
+    count = "?"
+    inst_hash = installed.get("hash", "")
+    if inst_hash and inst_hash != "unknown":
         result = subprocess.run(
             ["git", "-C", str(skills_dir), "rev-list", "--count",
-             f"{installed.get('hash', 'HEAD~1')}..HEAD"],
+             f"{inst_hash}..HEAD"],
             capture_output=True, text=True,
         )
-        count = result.stdout.strip() if result.returncode == 0 else "?"
-        print(f"Update available: {count} new commit(s)")
-        return True
+        if result.returncode == 0:
+            count = result.stdout.strip()
+    print(f"Update available: {count} new commit(s)")
+    return True
 
 
 def ensure_venv(project_dir: Path) -> Path:
