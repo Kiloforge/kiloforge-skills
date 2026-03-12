@@ -456,11 +456,13 @@ REGISTRY_CMD="$REGISTRY_CMD; .agent/kf/bin/kf-track.py conflicts add {a} {b} {ri
   --registry-cmd "$REGISTRY_CMD"
 ```
 
-**Flow:** acquire lock → rebase on primary → run registry commands (against clean rebased state, no conflicts) → commit → ff-merge to primary → release lock. Lock always releases on error.
+**Flow:** acquire lock → rebase on primary → run registry commands (against clean rebased state, no conflicts) → commit → ff-merge to primary → release lock.
 
 **Exit code 2** means the lock is held — report and **HALT**.
 
-**Exit code 1** means the merge failed — report and **HALT**.
+**Exit code 1** means the merge failed (lock released) — report and **HALT**.
+
+**Exit code 3** means unresolved rebase conflicts — lock is STILL HELD. Resolve the conflicts (`git add` + `git rebase --continue`), then re-run `kf-merge.py` (acquire is idempotent for the same holder). Only release the lock after merge completes or via explicit abort (`git rebase --abort && kf-merge-lock release`).
 
 ---
 

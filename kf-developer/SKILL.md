@@ -318,6 +318,8 @@ VERIFY_CMD="<commands from workflow.yaml>"
 
 **With `--disable-auto-merge`:** Use `--timeout 0` instead. If lock is held (exit code 2), report and **HALT** — wait for user to say "merge" to retry.
 
+**Exit code 3** means unresolved rebase conflicts — lock is STILL HELD. Resolve the source code conflicts (`git add` the resolved files, `git rebase --continue`), then re-run `kf-merge.py` (acquire is idempotent for the same holder). Only release the lock after merge completes or via explicit abort (`git rebase --abort && kf-merge-lock release`).
+
 #### 11c. Post-merge cleanup
 
 After `kf-merge` succeeds:
@@ -399,7 +401,7 @@ If `--auto-exit` was **not** provided, remain in the interactive session.
 | Verification failure       | Report details, offer fix/retry/wait                     |
 | Branch lock held           | Report (`kf-merge-lock status`), wait for other worker |
 | Rebase conflict (state files) | Accept theirs, continue rebase, re-apply via CLI     |
-| Rebase conflict (source code) | Release lock, report, **HALT**                       |
+| Rebase conflict (source code) | Lock stays held — resolve conflicts, `git add`, `git rebase --continue`, then proceed with merge. Only release lock after merge or explicit abort. |
 | Post-rebase verify failure | Release lock, report, offer fix/retry/abort              |
 | Merge not fast-forwardable | Release lock, offer re-rebase or abort                   |
 

@@ -108,10 +108,10 @@ git rebase ${PRIMARY_BRANCH}
 
 **On conflict — track state file resolution:**
 
-Track state files (`tracks.yaml`, `deps.yaml`, `conflicts.yaml`) are append/update structures. The primary branch's version is always ground truth. Accept theirs, then re-apply your additions:
+Track state files (`tracks.yaml`, `deps.yaml`, `conflicts.yaml`) are append/update structures. The primary branch's version is always ground truth. During rebase, `--ours` = the branch being rebased onto (primary), `--theirs` = the commit being replayed (worker's stale version). Accept the primary branch's version with `--ours`, then re-apply your additions:
 
 ```bash
-git checkout --theirs .agent/kf/tracks.yaml .agent/kf/tracks/deps.yaml .agent/kf/tracks/conflicts.yaml
+git checkout --ours .agent/kf/tracks.yaml .agent/kf/tracks/deps.yaml .agent/kf/tracks/conflicts.yaml
 git add .agent/kf/tracks.yaml .agent/kf/tracks/deps.yaml .agent/kf/tracks/conflicts.yaml
 git rebase --continue
 ```
@@ -125,7 +125,7 @@ Then re-apply via CLI (the `--reapply` command):
 .agent/kf/bin/kf-track.py update {trackId} --status completed
 ```
 
-**For non-state file conflicts** (source code): release lock, report, HALT.
+**For non-state file conflicts** (source code): the lock stays held. The agent must resolve the conflicts manually, `git add` the resolved files, `git rebase --continue`, and then proceed with the merge. The lock is only released after the merge completes (or the agent explicitly aborts with `git rebase --abort && kf-merge-lock release`). This prevents other workers from merging in between and causing cascading conflicts.
 
 ### Step 6 — Registry update (metadata merge only)
 
@@ -181,6 +181,7 @@ Only fast-forward merges are allowed. If the merge cannot fast-forward, somethin
 | 0 | Merge succeeded |
 | 1 | Merge failed (lock released, safe to retry) |
 | 2 | Lock held by another worker (not acquired) |
+| 3 | Unresolved conflicts — lock STILL HELD, agent must resolve and retry |
 
 ## Safety Rules
 
@@ -189,4 +190,4 @@ Only fast-forward merges are allowed. If the merge cannot fast-forward, somethin
 3. **NEVER force-remove another worker's lock** — report stale locks to the user
 4. **Release lock on ANY failure** — the `kf-merge` script handles this via trap
 5. **Track state conflicts favor primary branch** — accept theirs, re-apply additions via CLI
-6. **Non-state conflicts are blocking** — release lock, report, HALT
+6. **Non-state conflicts hold the lock** — resolve conflicts while locked, only release after merge completes or explicit abort
