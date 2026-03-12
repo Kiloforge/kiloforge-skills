@@ -94,7 +94,7 @@ Initialize or resume Kiloforge project setup. This command creates foundational 
    by the conductor. You are now in the primary worktree.
    ```
 
-   Store `"clone_mode": "worktree"` in `setup_state.json` so the conductor knows the project uses the worktree model. Skip the primary branch question in step 1 — it was already determined from the bare repo HEAD.
+   Skip the primary branch question in step 1 — it was already determined from the bare repo HEAD. The conductor auto-detects the bare repo / worktree layout at runtime, so no clone mode needs to be stored.
 
    **If the user chooses 3 (New repo):**
 
