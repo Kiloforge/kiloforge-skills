@@ -55,7 +55,7 @@ def run_or_die(cmd, msg):
 def get_primary_branch():
     """Resolve primary branch via kf-primary-branch."""
     kf_bin = os.path.dirname(os.path.abspath(__file__))
-    pb = run(f"{kf_bin}/kf-primary-branch")
+    pb = run(f"{kf_bin}/kf-primary-branch.py")
     return pb if pb else "main"
 
 
@@ -108,7 +108,7 @@ def get_worktree_state():
 def parse_track_status(ref):
     """Parse kf-track status output to get track lists."""
     kf_bin = os.path.dirname(os.path.abspath(__file__))
-    output = run(f"{kf_bin}/kf-track list --all --json --ref {ref}")
+    output = run(f"{kf_bin}/kf-track.py list --all --json --ref {ref}")
     if not output:
         return {}, [], [], [], []
 
@@ -140,7 +140,7 @@ def parse_track_status(ref):
 def parse_deps(ref):
     """Parse dependency graph."""
     kf_bin = os.path.dirname(os.path.abspath(__file__))
-    output = run(f"{kf_bin}/kf-track deps show --json --ref {ref} 2>/dev/null")
+    output = run(f"{kf_bin}/kf-track.py deps show --json --ref {ref} 2>/dev/null")
     if not output:
         return {}
     try:
@@ -152,7 +152,7 @@ def parse_deps(ref):
 def parse_conflicts(ref):
     """Parse conflict pairs."""
     kf_bin = os.path.dirname(os.path.abspath(__file__))
-    output = run(f"{kf_bin}/kf-track conflicts list --all --json --ref {ref} 2>/dev/null")
+    output = run(f"{kf_bin}/kf-track.py conflicts list --all --json --ref {ref} 2>/dev/null")
     if not output:
         return {}
     try:
@@ -339,7 +339,7 @@ def main():
                 "branch": f"kf/{track_type}/{tid}",
                 "priority_score": priority[0],
                 "unblocks": unblock_count,
-                "command": f'claude --worktree {worker["folder"]} -p "/kf-developer {tid}"',
+                "command": f'kf-conductor.py spawn {worker["folder"]} {tid}',
             })
 
     unassigned = [w for w in idle if w["folder"] not in {a["worker"] for a in assignments}]
