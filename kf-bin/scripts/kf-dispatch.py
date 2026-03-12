@@ -179,13 +179,33 @@ def parse_conflicts(ref):
     return data
 
 
-def classify_pending(all_tracks, deps, completed_set):
-    """Classify pending tracks as available or blocked based on deps."""
+def parse_active_claims():
+    """Get the set of track IDs that are currently claimed by any worktree."""
+    kf_bin = os.path.dirname(os.path.abspath(__file__))
+    output = run(f"{kf_bin}/kf-claim.py list --json")
+    if not output:
+        return set()
+    try:
+        claims = json.loads(output)
+        return {c.get("track_id") for c in claims if c.get("track_id")}
+    except (json.JSONDecodeError, TypeError):
+        return set()
+
+
+def classify_pending(all_tracks, deps, completed_set, claimed_tracks=None):
+    """Classify pending tracks as available or blocked based on deps and claims."""
+    if claimed_tracks is None:
+        claimed_tracks = set()
+
     available = []
     blocked = []
 
     for track_id, info in all_tracks.items():
         if info.get("status") != "pending":
+            continue
+
+        # Skip tracks that are actively claimed (even if tracks.yaml still says pending)
+        if track_id in claimed_tracks:
             continue
 
         track_deps = deps.get(track_id, [])
@@ -285,12 +305,16 @@ def main():
     claimed_set = set(claimed)
     completed_set = set(completed)
 
+    # Read active claims (tracks being worked on, even if tracks.yaml hasn't been updated yet)
+    active_claims = parse_active_claims()
+    claimed_set |= active_claims
+
     # Read deps and conflicts
     deps = parse_deps(ref)
     conflicts = parse_conflicts(ref)
 
-    # Classify pending tracks
-    available, blocked = classify_pending(all_tracks, deps, completed_set)
+    # Classify pending tracks (exclude actively claimed tracks)
+    available, blocked = classify_pending(all_tracks, deps, completed_set, active_claims)
 
     # Get active worker types
     active_types = set()

@@ -564,8 +564,27 @@ def run_dispatch(max_w: int, timeout_min: int) -> DispatchResult:
     return dr
 
 
+def _track_completed_on_primary(track_id: str) -> bool:
+    """Check if a track is marked completed on the primary branch."""
+    result = subprocess.run(
+        ["git", "show", f"HEAD:.agent/kf/tracks.yaml"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return False
+    for line in result.stdout.split("\n"):
+        if line.startswith(f"{track_id}:") and '"completed"' in line:
+            return True
+    return False
+
+
 def auto_cleanup_completed():
-    """Silently clean up completed workers so they can be re-used."""
+    """Silently clean up completed workers so they can be re-used.
+
+    For successfully completed workers, only release the claim if the track
+    is marked completed on the primary branch. This prevents re-dispatch of
+    tracks whose merge hasn't propagated yet.
+    """
     for sf in sorted(conductor_dir().glob("*.json")):
         if sf.name.startswith("_"):
             continue
@@ -575,6 +594,15 @@ def auto_cleanup_completed():
             continue
         if data.get("state") not in ("completed", "failed", "timeout", "killed"):
             continue
+
+        track_id = data.get("track_id", "")
+
+        # For completed workers, verify track status on primary branch before
+        # releasing claim. If the track isn't marked completed yet (merge not
+        # propagated), keep the claim to prevent re-dispatch.
+        if data.get("state") == "completed" and track_id:
+            if not _track_completed_on_primary(track_id):
+                continue  # Keep claim, skip cleanup — will retry next cycle
 
         # Release claim
         subprocess.run(
