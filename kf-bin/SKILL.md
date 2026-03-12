@@ -18,11 +18,20 @@ All CLI tools are Python scripts that require the Kiloforge virtual environment 
 
 **IMPORTANT: NEVER install packages globally.** Do not use `pip install`, `pip3 install`, or `--break-system-packages`. All dependencies are installed into the project-local venv only. If the venv is missing, `kf-preflight.py` will auto-create it.
 
-**Running scripts:** During setup, script shebangs are rewritten to point directly at the venv interpreter (`.agent/kf/.venv/bin/python`), so scripts run with the correct environment automatically:
+**Running scripts:** The venv is activated via `kf-preflight.py`, which every skill evals at startup. This puts `.venv/bin/python` on PATH so all scripts (which use `#!/usr/bin/env python3`) pick up the correct interpreter:
 
 ```bash
-# Scripts are executable and use the venv automatically via their shebang
+# Preflight activates the venv and sets PRIMARY_BRANCH
+eval "$(.agent/kf/bin/kf-preflight.py)"
+
+# All subsequent script calls use the venv automatically
 .agent/kf/bin/kf-track.py list --active
+```
+
+**If running scripts outside of a skill** (e.g., manual testing), activate the venv first:
+
+```bash
+source .agent/kf/.venv/bin/activate && .agent/kf/bin/kf-conductor.py status
 ```
 
 **If the venv is missing or broken**, restore it:
@@ -33,12 +42,6 @@ python3 -m venv .agent/kf/.venv
 
 # Install dependencies
 .agent/kf/.venv/bin/pip install pyyaml
-
-# Rewrite shebangs to use the venv
-KF_PYTHON=".agent/kf/.venv/bin/python"
-for f in .agent/kf/bin/*.py; do
-  sed -i.bak "1s|.*|#!$KF_PYTHON|" "$f" && rm -f "$f.bak"
-done
 ```
 
 For detailed platform-specific installation instructions (macOS, Linux, Windows), see `references/python-setup.md`.
