@@ -56,25 +56,26 @@ This replaces skill definitions in `~/.claude/skills/`, CLI scripts in `.agent/k
 python3 /path/to/kiloforge-skills/kf-bin/scripts/kf-install.py --update --project-dir "$(pwd)"
 ```
 
-### Step 4 — Commit changes to the primary branch
+### Step 4 — Commit and merge to primary branch
 
-The updated scripts and `.gitignore` must be committed to the primary branch so all worktrees see them.
+The updated scripts and `.gitignore` must be committed and merged to the primary branch so all worktrees see them.
 
 ```bash
-PRIMARY_BRANCH=$(.agent/kf/bin/kf-primary-branch.py 2>/dev/null || echo "main")
 git add .agent/kf/bin/ .agent/kf/.gitignore
 git diff --cached --quiet || git commit -m "chore(kf): update kiloforge CLI tools and config"
 ```
 
-If you are running from a worktree (not the primary branch), merge to primary:
+If running from a worktree (not the primary branch), merge using the standard protocol:
 
 ```bash
 CURRENT_BRANCH=$(git branch --show-current)
+PRIMARY_BRANCH=$(.agent/kf/bin/kf-primary-branch.py 2>/dev/null || echo "main")
 if [ "$CURRENT_BRANCH" != "$PRIMARY_BRANCH" ]; then
-  MAIN_WT=$(git worktree list | head -1 | awk '{print $1}')
-  git -C "$MAIN_WT" merge "$CURRENT_BRANCH" --ff-only
+  .agent/kf/bin/kf-merge.py --holder "$(basename $(pwd))" --timeout 0
 fi
 ```
+
+This is a metadata-only merge (no `--verify` needed). If exit code 2 (lock held), report and retry. If exit code 3 (conflicts), resolve while locked and re-run.
 
 ### Step 5 — Report
 

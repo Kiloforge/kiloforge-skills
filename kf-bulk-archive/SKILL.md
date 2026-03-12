@@ -72,7 +72,19 @@ git add .agent/kf/tracks.yaml .agent/kf/tracks/
 git commit -m "chore: bulk archive {count} completed tracks"
 ```
 
-### Step 5: Report
+### Step 5: Merge to primary branch
+
+The archived state must be merged to the primary branch so all worktrees see it. Use the standard metadata merge protocol:
+
+```bash
+.agent/kf/bin/kf-merge.py --holder "$(basename $(pwd))" --timeout 0
+```
+
+This is a metadata-only merge (no `--verify` needed). If exit code 2 (lock held), report and retry. If exit code 3 (conflicts), resolve while locked and re-run.
+
+If already on the primary branch (not in a worktree), the commit from Step 4 is sufficient — skip the merge.
+
+### Step 6: Report
 
 ```
 ================================================================================
