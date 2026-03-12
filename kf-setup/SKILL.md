@@ -111,7 +111,7 @@ Initialize or resume Kiloforge project setup. This command creates foundational 
 
    This creates the full `.agent/kf/` structure in one call:
    - Project-local venv at `.agent/kf/.venv` with PyYAML
-   - `.agent/kf/.gitignore` with `.venv` entry
+   - `.agent/kf/.gitignore` with `.venv` and `__pycache__/` entries
    - Empty metadata files (config, product, tech-stack, workflow, tracks, deps, conflicts)
    - CLI tools in `.agent/kf/bin/` with shebangs rewritten to use the venv
 

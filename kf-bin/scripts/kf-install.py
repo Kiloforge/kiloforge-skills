@@ -173,7 +173,7 @@ def ensure_gitignore(project_dir: Path):
     gitignore = project_dir / ".agent" / "kf" / ".gitignore"
     gitignore.parent.mkdir(parents=True, exist_ok=True)
 
-    entries_needed = [".venv"]
+    entries_needed = [".venv", "__pycache__/"]
     existing = set()
     if gitignore.exists():
         existing = set(gitignore.read_text().splitlines())
