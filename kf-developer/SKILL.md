@@ -57,6 +57,18 @@ git worktree list
 - Record the **primary branch worktree path** from `git worktree list` — needed for merge operations
 - Record the **home branch** name — to return to after merge
 
+**CRITICAL: Verify you are NOT in the primary branch worktree.** Compare your current working directory against the primary branch worktree path from `git worktree list`. If they match, you are in the main worktree — **HALT immediately:**
+
+```
+ERROR: You are in the primary branch worktree. Agents must NEVER work
+in the main worktree. Use your own worker worktree instead.
+
+Current directory: $(pwd)
+Primary worktree:  {primary worktree path}
+```
+
+The main worktree is a merge target only — no agent should ever checkout branches, commit, or modify files there. All work happens in dedicated worker worktrees.
+
 ---
 
 ## Phase 1: Validation

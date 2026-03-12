@@ -185,9 +185,10 @@ Only fast-forward merges are allowed. If the merge cannot fast-forward, somethin
 
 ## Safety Rules
 
-1. **ONE merge at a time** — enforced via branch lock
-2. **Fast-forward only** — no merge commits, no squashing
-3. **NEVER force-remove another worker's lock** — report stale locks to the user
-4. **Release lock on ANY failure** — the `kf-merge` script handles this via trap
-5. **Track state conflicts favor primary branch** — accept theirs, re-apply additions via CLI
-6. **Non-state conflicts hold the lock** — resolve conflicts while locked, only release after merge completes or explicit abort
+1. **NEVER work in the primary branch worktree** — agents must work in their own worktree on their own branch. The primary branch worktree is a merge target only. `kf-merge` will refuse to run if the current branch is the primary branch.
+2. **ONE merge at a time** — enforced via branch lock
+3. **Fast-forward only** — no merge commits, no squashing
+4. **NEVER force-remove another worker's lock** — report stale locks to the user
+5. **Release lock on ANY failure** — the `kf-merge` script handles this via trap
+6. **Track state conflicts favor primary branch** — accept theirs, re-apply additions via CLI
+7. **Non-state conflicts hold the lock** — resolve conflicts while locked, only release after merge completes or explicit abort
