@@ -6,23 +6,20 @@ empty metadata scaffolding. Existing metadata files are never overwritten.
 
 USAGE:
     kf-install [OPTIONS]
-    kf-install --update    # Update CLI tools only (skip scaffolding)
-    kf-install --check     # Check if an update is available
+    kf-install --update    # Update skills + CLI tools only (skip scaffolding)
 
 OPTIONS:
-    --project-dir DIR   Target project root (default: cwd)
-    --skills-dir DIR    Path to kiloforge-skills repo (default: auto-detect)
-    --update            Update mode: only copy scripts and lib (skip venv/metadata)
-    --check             Check for available updates (no changes made)
-    --skip-venv         Skip venv creation/update
-    --primary-branch B  Primary branch name for config.yaml (default: main)
+    --project-dir DIR    Target project root (default: cwd)
+    --skills-dir DIR     Path to kiloforge-skills repo (default: auto-detect)
+    --skills-target DIR  Where to install skill definitions (default: ~/.claude/skills)
+    --update             Update mode: replace skills + scripts (skip venv/metadata)
+    --skip-venv          Skip venv creation/update
+    --primary-branch B   Primary branch name for config.yaml (default: main)
 
 Run from anywhere — it auto-detects the skills repo from its own location.
 """
 
 import argparse
-import hashlib
-import json
 import os
 import shutil
 import subprocess
@@ -79,14 +76,7 @@ def detect_skills_dir(script_path: Path) -> Path:
 
 
 def resolve_project_dir(raw_path: str) -> Path:
-    """Resolve the project directory, handling worktrees and bare repos.
-
-    Uses git to find the working tree root. This handles:
-    - Normal repo root (returns as-is)
-    - Subdirectory of a repo (returns repo root)
-    - Git worktree (returns worktree root, not the main repo)
-    - Bare repo (errors — no working tree to install into)
-    """
+    """Resolve the project directory, handling worktrees and bare repos."""
     path = Path(raw_path).resolve()
 
     # Try git rev-parse --show-toplevel from the given path
@@ -103,7 +93,6 @@ def resolve_project_dir(raw_path: str) -> Path:
         capture_output=True, text=True,
     )
     if result.returncode == 0 and result.stdout.strip() == "true":
-        # Bare repo — list worktrees and suggest using one
         wt_result = subprocess.run(
             ["git", "-C", str(path), "worktree", "list", "--porcelain"],
             capture_output=True, text=True,
@@ -111,11 +100,8 @@ def resolve_project_dir(raw_path: str) -> Path:
         worktrees = []
         if wt_result.returncode == 0:
             for line in wt_result.stdout.splitlines():
-                if line.startswith("worktree "):
-                    wt_path = line[len("worktree "):]
-                    # Skip the bare repo itself
-                    if wt_path != str(path):
-                        worktrees.append(wt_path)
+                if line.startswith("worktree ") and line[len("worktree "):] != str(path):
+                    worktrees.append(line[len("worktree "):])
 
         print("ERROR: Cannot install into a bare repository.", file=sys.stderr)
         if worktrees:
@@ -130,184 +116,13 @@ def resolve_project_dir(raw_path: str) -> Path:
     return path
 
 
-def is_skills_repo(path: Path) -> bool:
-    """Check if a path is a valid kiloforge-skills git repo.
-
-    Must be a git repo containing kf-bin/scripts/*.py at the repo root.
-    This distinguishes the actual repo from ~/.claude/skills/ which has
-    kf-bin/ as a skill subdirectory (not a repo root).
-    """
-    if not (path / "kf-bin" / "scripts").is_dir():
-        return False
-    # Verify it's actually a git repo
-    result = subprocess.run(
-        ["git", "-C", str(path), "rev-parse", "--git-dir"],
-        capture_output=True, text=True,
-    )
-    return result.returncode == 0
-
-
-def get_skills_version(skills_dir: Path) -> dict:
-    """Get version info from the skills repo (git commit hash + date)."""
-    result = subprocess.run(
-        ["git", "-C", str(skills_dir), "log", "-1", "--format=%H%n%h%n%ci%n%s"],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        return {"hash": "unknown", "short": "unknown", "date": "", "subject": ""}
-    lines = result.stdout.strip().splitlines()
-    return {
-        "hash": lines[0] if len(lines) > 0 else "unknown",
-        "short": lines[1] if len(lines) > 1 else "unknown",
-        "date": lines[2] if len(lines) > 2 else "",
-        "subject": lines[3] if len(lines) > 3 else "",
-    }
-
-
-def get_installed_version(project_dir: Path) -> dict | None:
-    """Read the installed version from .agent/kf/.version."""
-    version_file = project_dir / ".agent" / "kf" / ".version"
-    if not version_file.exists():
-        return None
-    try:
-        return json.loads(version_file.read_text())
-    except (json.JSONDecodeError, OSError):
-        return None
-
-
-def detect_installed_version(project_dir: Path, skills_dir: Path) -> dict | None:
-    """Try to detect installed version by comparing files against skills repo git history.
-
-    When no .version stamp exists (manual copy, pre-stamp install), compare
-    installed scripts against the skills repo's git history to find the
-    closest matching commit.
-    """
-    bin_dir = project_dir / ".agent" / "kf" / "bin"
-    src_dir = skills_dir / "kf-bin" / "scripts"
-
-    if not bin_dir.is_dir() or not src_dir.is_dir():
-        return None
-
-    # Hash installed scripts (ignoring shebangs which get rewritten)
-    def hash_script(path: Path) -> str:
-        text = path.read_text()
-        # Strip shebang line — it varies per install
-        lines = text.split("\n", 1)
-        body = lines[1] if len(lines) > 1 and lines[0].startswith("#!") else text
-        return hashlib.sha256(body.encode()).hexdigest()
-
-    installed_hashes = {}
-    for f in sorted(bin_dir.glob("*.py")):
-        try:
-            installed_hashes[f.name] = hash_script(f)
-        except OSError:
-            continue
-
-    if not installed_hashes:
-        return None
-
-    # Hash current skills repo scripts
-    current_hashes = {}
-    for f in sorted(src_dir.glob("*.py")):
-        try:
-            current_hashes[f.name] = hash_script(f)
-        except OSError:
-            continue
-
-    # Compare: if all installed scripts match current, they're at HEAD
-    if installed_hashes == current_hashes:
-        version = get_skills_version(skills_dir)
-        version["detected"] = True
-        return version
-
-    # Check for partial match (some files match, some don't)
-    common = set(installed_hashes) & set(current_hashes)
-    if common:
-        matching = sum(1 for k in common if installed_hashes[k] == current_hashes[k])
-        total = len(common)
-        if matching == total:
-            # All common files match but sets differ (new scripts added)
-            version = get_skills_version(skills_dir)
-            version["detected"] = True
-            version["note"] = f"scripts match HEAD but {len(current_hashes) - len(installed_hashes)} new script(s) available"
-            return version
-
-    return {"hash": "unknown", "short": "unknown", "detected": True,
-            "note": f"{len(installed_hashes)} scripts installed, content differs from current"}
-
-
-def stamp_version(project_dir: Path, skills_dir: Path):
-    """Write the current skills repo version to .agent/kf/.version."""
-    version = get_skills_version(skills_dir)
-    version["installed_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    version["skills_dir"] = str(skills_dir)
-    version_file = project_dir / ".agent" / "kf" / ".version"
-    version_file.parent.mkdir(parents=True, exist_ok=True)
-    version_file.write_text(json.dumps(version, indent=2) + "\n")
-
-
-def check_for_updates(project_dir: Path, skills_dir: Path) -> bool:
-    """Compare installed version with available version. Returns True if update available."""
-    installed = get_installed_version(project_dir)
-    available = get_skills_version(skills_dir)
-
-    print(f"Skills repo:  {skills_dir}")
-    print(f"Available:    {available['short']} ({available['date']})")
-    print(f"              {available['subject']}")
-    print()
-
-    if installed is None:
-        # No stamp — try to detect version by comparing file contents
-        detected = detect_installed_version(project_dir, skills_dir)
-        if detected is None:
-            print("Installed:    (not installed)")
-            return True
-        elif detected.get("hash") == "unknown":
-            note = detected.get("note", "version unknown")
-            print(f"Installed:    (no version stamp — {note})")
-            print("              Run /kf-update to establish version tracking")
-            return True
-        elif detected.get("hash") == available["hash"]:
-            note = detected.get("note", "")
-            if note:
-                print(f"Installed:    {detected['short']} ({detected.get('date', '')}) [detected]")
-                print(f"              {note}")
-                return True
-            print(f"Installed:    {detected['short']} ({detected.get('date', '')}) [detected]")
-            print()
-            print("Already up to date (no version stamp — will be created on next update)")
-            return False
-        else:
-            print(f"Installed:    {detected['short']} ({detected.get('date', '')}) [detected]")
-            return True
-
-    print(f"Installed:    {installed.get('short', 'unknown')} ({installed.get('date', '')})")
-    print(f"              {installed.get('subject', '')}")
-    print(f"              Installed at: {installed.get('installed_at', 'unknown')}")
-    print()
-
-    if installed.get("hash") == available["hash"] and available["hash"] != "unknown":
-        print("Already up to date.")
-        return False
-
-    if available["hash"] == "unknown":
-        print("WARNING: Could not determine available version from skills repo")
-        print(f"         Is {skills_dir} a valid git repository?")
-        return True
-
-    # Count commits between installed and available
-    count = "?"
-    inst_hash = installed.get("hash", "")
-    if inst_hash and inst_hash != "unknown":
-        result = subprocess.run(
-            ["git", "-C", str(skills_dir), "rev-list", "--count",
-             f"{inst_hash}..HEAD"],
-            capture_output=True, text=True,
-        )
-        if result.returncode == 0:
-            count = result.stdout.strip()
-    print(f"Update available: {count} new commit(s)")
-    return True
+def validate_skills_dir(skills_dir: Path):
+    """Validate that the skills dir is an actual kiloforge-skills repo."""
+    if not (skills_dir / "kf-bin" / "scripts").is_dir():
+        print(f"ERROR: {skills_dir} is not a kiloforge-skills repo.", file=sys.stderr)
+        print("Expected to find kf-bin/scripts/ inside it.", file=sys.stderr)
+        print("Use --skills-dir to specify the correct path.", file=sys.stderr)
+        sys.exit(1)
 
 
 def ensure_venv(project_dir: Path) -> Path:
@@ -358,7 +173,7 @@ def ensure_gitignore(project_dir: Path):
     gitignore = project_dir / ".agent" / "kf" / ".gitignore"
     gitignore.parent.mkdir(parents=True, exist_ok=True)
 
-    entries_needed = [".venv", ".version"]
+    entries_needed = [".venv"]
     existing = set()
     if gitignore.exists():
         existing = set(gitignore.read_text().splitlines())
@@ -458,7 +273,7 @@ def scaffold_metadata(project_dir: Path, primary_branch: str) -> list[str]:
 
 
 def copy_scripts(skills_dir: Path, project_dir: Path) -> list[str]:
-    """Copy scripts and lib from skills repo to project."""
+    """Copy CLI scripts and lib from skills repo to project .agent/kf/bin/."""
     src = skills_dir / "kf-bin" / "scripts"
     dst = project_dir / ".agent" / "kf" / "bin"
 
@@ -489,6 +304,44 @@ def copy_scripts(skills_dir: Path, project_dir: Path) -> list[str]:
     return copied
 
 
+def copy_skills(skills_dir: Path, skills_target: Path) -> tuple[list[str], list[str]]:
+    """Copy skill SKILL.md files from skills repo to user's skills folder.
+
+    Returns (updated, added) lists of skill names.
+    """
+    updated = []
+    added = []
+
+    for skill_dir in sorted(skills_dir.iterdir()):
+        if not skill_dir.is_dir():
+            continue
+        skill_md = skill_dir / "SKILL.md"
+        if not skill_md.exists():
+            continue
+
+        skill_name = skill_dir.name
+        dst_dir = skills_target / skill_name
+
+        is_new = not dst_dir.exists()
+        dst_dir.mkdir(parents=True, exist_ok=True)
+
+        changed = False
+        for src_file in skill_dir.iterdir():
+            if src_file.is_file():
+                dst = dst_dir / src_file.name
+                if dst.exists() and dst.read_bytes() == src_file.read_bytes():
+                    continue
+                shutil.copy2(src_file, dst)
+                changed = True
+
+        if is_new:
+            added.append(skill_name)
+        elif changed:
+            updated.append(skill_name)
+
+    return updated, added
+
+
 def rewrite_shebangs(project_dir: Path, venv_dir: Path):
     """Rewrite Python script shebangs to use the project-local venv."""
     bin_dir = project_dir / ".agent" / "kf" / "bin"
@@ -508,46 +361,6 @@ def rewrite_shebangs(project_dir: Path, venv_dir: Path):
                 count += 1
 
     print(f"Rewrote shebangs in {count} script(s)")
-
-
-def copy_skills(skills_dir: Path, skills_target: Path) -> tuple[list[str], list[str]]:
-    """Copy skill SKILL.md files from the skills repo to the user's skills folder.
-
-    Returns (updated, added) lists of skill names.
-    """
-    updated = []
-    added = []
-
-    for skill_dir in sorted(skills_dir.iterdir()):
-        if not skill_dir.is_dir():
-            continue
-        skill_md = skill_dir / "SKILL.md"
-        if not skill_md.exists():
-            continue
-
-        skill_name = skill_dir.name
-        dst_dir = skills_target / skill_name
-        dst_file = dst_dir / "SKILL.md"
-
-        # Also copy any other files in the skill directory (resources, etc.)
-        is_new = not dst_dir.exists()
-        dst_dir.mkdir(parents=True, exist_ok=True)
-
-        changed = False
-        for src_file in skill_dir.iterdir():
-            if src_file.is_file():
-                dst = dst_dir / src_file.name
-                if dst.exists() and dst.read_bytes() == src_file.read_bytes():
-                    continue
-                shutil.copy2(src_file, dst)
-                changed = True
-
-        if is_new:
-            added.append(skill_name)
-        elif changed:
-            updated.append(skill_name)
-
-    return updated, added
 
 
 def clean_legacy(project_dir: Path) -> list[str]:
@@ -580,12 +393,12 @@ def main():
         help="Path to kiloforge-skills repo (default: auto-detect)",
     )
     parser.add_argument(
-        "--update", action="store_true",
-        help="Update mode: only copy scripts and lib (skip venv/metadata)",
+        "--skills-target", default=None,
+        help="Where to install skill definitions (default: ~/.claude/skills)",
     )
     parser.add_argument(
-        "--check", action="store_true",
-        help="Check for available updates (no changes made)",
+        "--update", action="store_true",
+        help="Update mode: replace skills + scripts (skip venv/metadata)",
     )
     parser.add_argument(
         "--skip-venv", action="store_true",
@@ -595,10 +408,6 @@ def main():
         "--primary-branch", default="main",
         help="Primary branch name for config.yaml (default: main)",
     )
-    parser.add_argument(
-        "--skills-target", default=None,
-        help="Where to install skill definitions (default: ~/.claude/skills)",
-    )
     args = parser.parse_args()
 
     project_dir = resolve_project_dir(args.project_dir)
@@ -607,43 +416,18 @@ def main():
     else:
         skills_dir = detect_skills_dir(Path(__file__).resolve())
 
-    # Validate skills_dir is actually a kiloforge-skills repo
-    if not is_skills_repo(skills_dir):
-        # Try to recover from the .version file
-        installed = get_installed_version(project_dir)
-        recovered = False
-        if installed and installed.get("skills_dir"):
-            candidate = Path(installed["skills_dir"])
-            if is_skills_repo(candidate):
-                print(f"WARNING: {skills_dir} is not a kiloforge-skills repo", file=sys.stderr)
-                print(f"Using skills repo from .version: {candidate}", file=sys.stderr)
-                skills_dir = candidate
-                recovered = True
-        if not recovered:
-            print(f"ERROR: {skills_dir} is not a kiloforge-skills repo.", file=sys.stderr)
-            print("Expected to find kf-bin/scripts/ inside it.", file=sys.stderr)
-            print("Use --skills-dir to specify the correct path.", file=sys.stderr)
-            sys.exit(1)
+    validate_skills_dir(skills_dir)
 
-    # --check mode: just compare versions and exit
-    if args.check:
-        print("=" * 60)
-        print("  Kiloforge — Version Check")
-        print("=" * 60)
-        print()
-        has_update = check_for_updates(project_dir, skills_dir)
-        sys.exit(0 if has_update else 2)
-
+    skills_target = Path(args.skills_target) if args.skills_target else Path.home() / ".claude" / "skills"
     mode = "Update" if args.update else "Install"
 
     print("=" * 60)
     print(f"  Kiloforge — {mode}")
     print("=" * 60)
-    skills_target_display = Path(args.skills_target) if args.skills_target else Path.home() / ".claude" / "skills"
-    print(f"  Skills repo:  {skills_dir}")
-    print(f"  Project:      {project_dir}")
-    print(f"  CLI target:   {project_dir / '.agent' / 'kf'}")
-    print(f"  Skills target: {skills_target_display}")
+    print(f"  Skills repo:   {skills_dir}")
+    print(f"  Project:       {project_dir}")
+    print(f"  CLI target:    {project_dir / '.agent' / 'kf' / 'bin'}")
+    print(f"  Skills target: {skills_target}")
     print("=" * 60)
     print()
 
@@ -671,15 +455,14 @@ def main():
             print("  (all metadata files already exist)")
         print()
 
-    # Step 3: Copy scripts to project
+    # Step 3: Copy CLI scripts to project
     print("Copying CLI scripts to .agent/kf/bin/...")
     copied = copy_scripts(skills_dir, project_dir)
     for name in copied:
         print(f"  {name}")
     print()
 
-    # Step 3b: Copy skill definitions to user's skills folder
-    skills_target = Path(args.skills_target) if args.skills_target else Path.home() / ".claude" / "skills"
+    # Step 4: Copy skill definitions to user's skills folder
     print(f"Updating skill definitions in {skills_target}...")
     sk_updated, sk_added = copy_skills(skills_dir, skills_target)
     if sk_added:
@@ -690,14 +473,14 @@ def main():
         print("  (all skills already up to date)")
     print()
 
-    # Step 4: Rewrite shebangs
+    # Step 5: Rewrite shebangs
     if venv_dir.is_dir():
         rewrite_shebangs(project_dir, venv_dir)
     else:
         print("WARNING: Venv not found — shebangs not updated", file=sys.stderr)
     print()
 
-    # Step 5: Clean legacy
+    # Step 6: Clean legacy
     removed = clean_legacy(project_dir)
     if removed:
         print(f"Cleaned {len(removed)} legacy script(s):")
@@ -706,14 +489,9 @@ def main():
     else:
         print("No legacy scripts to clean")
 
-    # Step 6: Stamp version
-    stamp_version(project_dir, skills_dir)
-    version = get_skills_version(skills_dir)
-    print(f"Version stamped: {version['short']} ({version['date']})")
-
     print()
     print("=" * 60)
-    print(f"  {mode} complete — version {version['short']}")
+    print(f"  {mode} complete")
     if not args.update:
         print()
         print("  Next: run /kf-setup to configure project metadata")

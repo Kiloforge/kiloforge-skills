@@ -1,17 +1,14 @@
 ---
 name: kf-update
-description: Check for and apply Kiloforge updates — pulls latest skills repo, updates skill definitions and project CLI tools
-metadata:
-  argument-hint: "[--check]"
+description: Update Kiloforge skill definitions and project CLI tools from the skills repo
 ---
 
 # Kiloforge Update
 
-Check for new versions and update everything: pull the skills repo, update skill definitions in `~/.claude/skills/`, and update project-embedded CLI tools in `.agent/kf/bin/`.
+Update skill definitions in `~/.claude/skills/` and CLI tools in `.agent/kf/bin/` from the skills repo.
 
 ## Use this skill when
 
-- You want to check if updates are available
 - You want to update skills and CLI tools to the latest version
 - A new skill or tool has been added and you need it
 - A bug fix was made and you need the fix
@@ -33,74 +30,32 @@ ls .agent/kf/bin/*.py
 
 If not found, suggest `/kf-setup` instead. **HALT.**
 
-### Step 2 — Resolve the skills repo path
-
-The skills repo path is needed for both version checking and updating. Determine it from one of:
-
-1. `$SKILL_DIR/../kf-bin/scripts/kf-install.py` — if `$SKILL_DIR` is available
-2. The `.agent/kf/.version` file — contains `skills_dir` from last install
-3. Ask the user for the path
-
-### Step 3 — Check for updates
+### Step 2 — Pull latest skills repo
 
 ```bash
-python3 "{skills_repo}/kf-bin/scripts/kf-install.py" --check --project-dir "$(pwd)"
+git -C "$SKILL_DIR/.." pull --ff-only
 ```
 
-Exit codes:
-- `0` — update available
-- `2` — already up to date
-
-If already up to date and the user did not pass `--check`, report and **STOP**:
+If the pull fails (e.g., local changes, detached HEAD), warn but continue:
 
 ```
-Kiloforge is already up to date.
+WARNING: Could not pull latest skills repo. Updating from current local version.
 ```
 
-If the user passed `--check`, just report the version info and **STOP** (don't apply updates).
-
-### Step 4 — Pull latest skills repo
-
-Update the skills repo itself to get the newest skill definitions and scripts:
+### Step 3 — Run the install script in update mode
 
 ```bash
-git -C "{skills_repo}" pull --ff-only
+python3 "$SKILL_DIR/../kf-bin/scripts/kf-install.py" --update --project-dir "$(pwd)"
 ```
 
-If the pull fails (e.g., local changes, detached HEAD), warn:
+This replaces skill definitions in `~/.claude/skills/`, CLI scripts in `.agent/kf/bin/`, rewrites shebangs, and cleans up legacy scripts.
 
-```
-WARNING: Could not update skills repo at {skills_repo}.
-Proceeding with update from current local version.
-```
-
-### Step 5 — Update project and skills
+**If `$SKILL_DIR` is not available**, use `--skills-dir`:
 
 ```bash
-python3 "{skills_repo}/kf-bin/scripts/kf-install.py" --update --project-dir "$(pwd)"
+python3 /path/to/kiloforge-skills/kf-bin/scripts/kf-install.py --update --project-dir "$(pwd)"
 ```
 
-This single command updates everything:
-- **Skill definitions** — copies SKILL.md files to `~/.claude/skills/` (new and changed skills)
-- **CLI scripts** — copies latest scripts to `.agent/kf/bin/`
-- **Shebangs** — rewrites to use project-local venv
-- **Legacy cleanup** — removes old non-.py scripts
-- **Version stamp** — records installed version in `.agent/kf/.version`
+### Step 4 — Report
 
-### Step 6 — Report
-
-```
-================================================================================
-                    KILOFORGE UPDATE COMPLETE
-================================================================================
-
-Skills repo:   {skills_repo}
-Previous:      {old_version_short} ({old_date})
-Updated to:    {new_version_short} ({new_date})
-               {commit_subject}
-
-Skills:        {N} updated, {N} added
-CLI tools:     Updated in .agent/kf/bin/
-Metadata:      Not modified
-================================================================================
-```
+Show the output from `kf-install.py` — it reports which skills were added/updated and which scripts were copied.
