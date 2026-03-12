@@ -246,14 +246,24 @@ After cleanup and re-dispatch, loop back to Phase 3 until all tracks are done.
 | `stopping` | Waiting for running workers to finish, then exits | Automatic when all workers done |
 | `stopped` | Manager exited | `start` to restart |
 
+## Tmux Layout
+
+Workers are packed into shared tmux windows as panes (up to 6 per window). Windows are named `workers-1`, `workers-2`, etc. The layout auto-rebalances with `tiled` after each new pane.
+
+- To switch to a worker window: `Ctrl-b` then select `workers-1`
+- To navigate between panes: `Ctrl-b o` (next pane) or `Ctrl-b q N` (pane by number)
+- Status shows each worker's `window.pane` location (e.g., `workers-1.2`)
+
 ## Worker Behavior
 
-Each spawned worker runs:
+Each spawned worker runs in its own pane:
 
 ```
 claude --dangerously-skip-permissions
 # then receives "/kf-developer <track-id>" via tmux send-keys
 ```
+
+Workers are fully interactive — you can attach to any pane and type.
 
 The worker:
 1. Claims the track via `kf-claim`

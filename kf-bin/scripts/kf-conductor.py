@@ -54,6 +54,9 @@ STATE_STOPPED = "stopped"
 # Default poll interval for the manager loop
 POLL_INTERVAL = 5  # seconds
 
+# Max panes per tmux window (workers are packed into panes)
+MAX_PANES_PER_WINDOW = 6
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -119,6 +122,70 @@ def tmux_pane_pid(window_name: str) -> int | None:
         return int(result.stdout.strip().splitlines()[0])
     except (IndexError, ValueError):
         return None
+
+
+def tmux_pane_count(window_name: str) -> int:
+    """Count the number of panes in a tmux window."""
+    result = subprocess.run(
+        ["tmux", "list-panes", "-t", window_name, "-F", "#{pane_index}"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return 0
+    return len(result.stdout.strip().splitlines())
+
+
+def tmux_pane_pid_at(window_name: str, pane_index: int) -> int | None:
+    """Get the PID of a specific pane in a window."""
+    target = f"{window_name}.{pane_index}"
+    result = subprocess.run(
+        ["tmux", "display-message", "-t", target, "-p", "#{pane_pid}"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return None
+    try:
+        return int(result.stdout.strip())
+    except ValueError:
+        return None
+
+
+def find_worker_window_with_space() -> str | None:
+    """Find an existing 'workers-N' window with room for another pane."""
+    result = subprocess.run(
+        ["tmux", "list-windows", "-F", "#{window_name} #{window_panes}"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return None
+    for line in result.stdout.strip().splitlines():
+        parts = line.split()
+        if len(parts) != 2:
+            continue
+        name, count = parts[0], int(parts[1])
+        if name.startswith("workers-") and count < MAX_PANES_PER_WINDOW:
+            return name
+    return None
+
+
+def next_worker_window_name() -> str:
+    """Generate the next 'workers-N' window name."""
+    result = subprocess.run(
+        ["tmux", "list-windows", "-F", "#{window_name}"],
+        capture_output=True, text=True,
+    )
+    existing = set()
+    if result.returncode == 0:
+        for line in result.stdout.strip().splitlines():
+            if line.startswith("workers-"):
+                try:
+                    existing.add(int(line.split("-", 1)[1]))
+                except (ValueError, IndexError):
+                    pass
+    n = 1
+    while n in existing:
+        n += 1
+    return f"workers-{n}"
 
 
 def pid_alive(pid: int) -> bool:
@@ -272,15 +339,18 @@ def refresh_worker(worker: str) -> dict | None:
     if not data or data.get("state") != "running":
         return data
 
-    if not tmux_window_exists(data.get("tmux_window", worker)):
-        if data["state"] == "running":
-            data["state"] = "completed"
-            data["finished"] = now_iso()
-            write_worker_status(worker, data)
+    win = data.get("tmux_window", worker)
+
+    # Check if window still exists
+    if not tmux_window_exists(win):
+        data["state"] = "completed"
+        data["finished"] = now_iso()
+        write_worker_status(worker, data)
         return data
 
-    pane = data.get("pane_pid")
-    if pane and not pid_alive(pane):
+    # Check pane PID liveness
+    pane_pid = data.get("pane_pid")
+    if pane_pid and not pid_alive(pane_pid):
         data["state"] = "completed"
         data["finished"] = now_iso()
         write_worker_status(worker, data)
@@ -315,7 +385,12 @@ def all_worker_statuses() -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def spawn_worker(worker: str, track_id: str, timeout_min: int) -> int:
-    """Spawn a single worker. Returns 0 on success, 1 on failure."""
+    """Spawn a single worker in a tmux pane. Returns 0 on success, 1 on failure.
+
+    Workers are packed into shared tmux windows (up to MAX_PANES_PER_WINDOW
+    panes each). A new window is created only when all existing windows are
+    full.
+    """
     wt_path = worktree_path_for(worker)
     if not wt_path:
         print(f"  ERROR: Worktree '{worker}' not found.", file=sys.stderr)
@@ -324,9 +399,14 @@ def spawn_worker(worker: str, track_id: str, timeout_min: int) -> int:
     # Check if worker already running
     existing = read_worker_status(worker)
     if existing and existing.get("state") == "running":
-        if tmux_window_exists(worker):
-            print(f"  ERROR: Worker '{worker}' already running.", file=sys.stderr)
-            return 1
+        win = existing.get("tmux_window", "")
+        pane_idx = existing.get("pane_index")
+        if win and pane_idx is not None:
+            target = f"{win}.{pane_idx}"
+            pid = tmux_pane_pid_at(win, pane_idx)
+            if pid and pid_alive(pid):
+                print(f"  ERROR: Worker '{worker}' already running.", file=sys.stderr)
+                return 1
 
     # Check if track already claimed
     claim_check = subprocess.run(
@@ -337,14 +417,9 @@ def spawn_worker(worker: str, track_id: str, timeout_min: int) -> int:
         print(f"  ERROR: Track '{track_id}' already claimed.", file=sys.stderr)
         return 1
 
-    # Build command — interactive mode so user can attach and interact.
-    # We launch claude in the tmux window, then send the prompt via
-    # send-keys so it arrives as user input in the interactive session.
+    # Build wrapper command
     initial_prompt = f"/kf-developer {track_id}"
-
     sf = str(worker_status_file(worker))
-    # The wrapper: cd into worktree, run claude interactively, then
-    # update the status file with the exit code when claude exits.
     wrapper = (
         f'cd {wt_path} && '
         f'claude --dangerously-skip-permissions; '
@@ -360,12 +435,49 @@ def spawn_worker(worker: str, track_id: str, timeout_min: int) -> int:
         f'" $EC'
     )
 
+    # Find or create a tmux window with available pane slots
+    window_name = find_worker_window_with_space()
+    is_new_window = window_name is None
+
+    if is_new_window:
+        window_name = next_worker_window_name()
+        result = subprocess.run(
+            ["tmux", "new-window", "-n", window_name, wrapper],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            print(f"  ERROR: tmux new-window failed: {result.stderr}",
+                  file=sys.stderr)
+            return 1
+        pane_index = 0
+    else:
+        result = subprocess.run(
+            ["tmux", "split-window", "-t", window_name, wrapper],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            print(f"  ERROR: tmux split-window failed: {result.stderr}",
+                  file=sys.stderr)
+            return 1
+        # New pane is the last one
+        pane_index = tmux_pane_count(window_name) - 1
+
+        # Rebalance the layout
+        subprocess.run(
+            ["tmux", "select-layout", "-t", window_name, "tiled"],
+            capture_output=True, text=True,
+        )
+
+    # Get PID of the new pane
+    pane_pid = tmux_pane_pid_at(window_name, pane_index)
+
     status_data = {
         "worker": worker,
         "track_id": track_id,
         "tmux_session": tmux_session(),
-        "tmux_window": worker,
-        "pane_pid": None,
+        "tmux_window": window_name,
+        "pane_index": pane_index,
+        "pane_pid": pane_pid,
         "started": now_iso(),
         "finished": None,
         "exit_code": None,
@@ -373,25 +485,11 @@ def spawn_worker(worker: str, track_id: str, timeout_min: int) -> int:
     }
     write_worker_status(worker, status_data)
 
-    # Create tmux window with claude
-    result = subprocess.run(
-        ["tmux", "new-window", "-n", worker, wrapper],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        print(f"  ERROR: tmux window failed: {result.stderr}", file=sys.stderr)
-        worker_status_file(worker).unlink(missing_ok=True)
-        return 1
-
-    pane = tmux_pane_pid(worker)
-    if pane:
-        status_data["pane_pid"] = pane
-        write_worker_status(worker, status_data)
-
     # Wait for claude to initialize, then send the prompt
+    pane_target = f"{window_name}.{pane_index}"
     time.sleep(2)
     subprocess.run(
-        ["tmux", "send-keys", "-t", worker, initial_prompt, "Enter"],
+        ["tmux", "send-keys", "-t", pane_target, initial_prompt, "Enter"],
         capture_output=True, text=True,
     )
 
@@ -705,9 +803,9 @@ def cmd_status(args):
         print("No workers.")
         return 0
 
-    fmt = "%-18s %-40s %-14s %s"
-    print(fmt % ("WORKER", "TRACK", "STATE", "ELAPSED"))
-    print(fmt % ("------", "-----", "-----", "-------"))
+    fmt = "%-18s %-40s %-14s %-12s %s"
+    print(fmt % ("WORKER", "TRACK", "STATE", "PANE", "ELAPSED"))
+    print(fmt % ("------", "-----", "-----", "----", "-------"))
 
     for w in workers:
         state = w.get("state", "?")
@@ -734,7 +832,11 @@ def cmd_status(args):
             "killed": "⊘ killed",
         }.get(state, state)
 
-        print(fmt % (w.get("worker", "?"), w.get("track_id", "?"), state_display, elapsed))
+        win = w.get("tmux_window", "?")
+        pane_idx = w.get("pane_index", "?")
+        pane_loc = f"{win}.{pane_idx}" if pane_idx != "?" else win
+
+        print(fmt % (w.get("worker", "?"), w.get("track_id", "?"), state_display, pane_loc, elapsed))
 
     running = sum(1 for w in workers if w.get("state") == "running")
     done = sum(1 for w in workers if w.get("state") != "running")
@@ -754,8 +856,15 @@ def cmd_kill(args):
         print(f"Worker '{args.worker}' is not running (state: {data.get('state')})")
         return 0
 
-    if tmux_window_exists(args.worker):
-        subprocess.run(["tmux", "kill-window", "-t", args.worker], capture_output=True)
+    # Kill the specific pane (not the whole window)
+    win = data.get("tmux_window", args.worker)
+    pane_idx = data.get("pane_index")
+    if win and pane_idx is not None:
+        target = f"{win}.{pane_idx}"
+        subprocess.run(["tmux", "kill-pane", "-t", target], capture_output=True)
+    elif tmux_window_exists(win):
+        # Fallback for legacy status without pane_index
+        subprocess.run(["tmux", "kill-window", "-t", win], capture_output=True)
 
     data["state"] = "killed"
     data["finished"] = now_iso()
@@ -788,8 +897,16 @@ def cmd_cleanup(args):
         if args.failed and state not in ("failed", "timeout"):
             continue
 
-        if state == "running" and tmux_window_exists(worker):
-            subprocess.run(["tmux", "kill-window", "-t", worker], capture_output=True)
+        if state == "running":
+            win = data.get("tmux_window", worker)
+            pane_idx = data.get("pane_index")
+            if win and pane_idx is not None:
+                subprocess.run(
+                    ["tmux", "kill-pane", "-t", f"{win}.{pane_idx}"],
+                    capture_output=True)
+            elif tmux_window_exists(win):
+                subprocess.run(
+                    ["tmux", "kill-window", "-t", win], capture_output=True)
 
         subprocess.run(
             [os.path.join(BIN_DIR, "kf-claim.py"), "release", "--worktree", worker],
