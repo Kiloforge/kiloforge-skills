@@ -34,7 +34,7 @@ ACTIVE ROLE: kf-developer — track {trackId} — skill at ~/.claude/skills/kf-d
 This line is designed to survive compaction summaries. If you see it in your context but can no longer recall the full workflow, re-read the skill file before continuing. For project-specific values, re-read only what you need:
 
 - Verification commands: `.agent/kf/workflow.yaml`
-- Track list/statuses: `.agent/kf/bin/kf-track.py list`
+- Track list/statuses: `.agent/kf/bin/kf-track.py list --ref ${PRIMARY_BRANCH}`
 - Track progress: `.agent/kf/bin/kf-track-content.py progress {trackId}`
 - Main worktree path: `git worktree list`
 
@@ -101,14 +101,14 @@ To see available tracks, run `.agent/kf/bin/kf-track.py list` or /kf-architect t
 
 1. **Check track exists and get its status:**
    ```bash
-   .agent/kf/bin/kf-track.py get {trackId}
+   .agent/kf/bin/kf-track.py get {trackId} --ref ${PRIMARY_BRANCH}
    ```
    If not found (exits non-zero):
    ```
    ERROR: Track not found — {trackId}
 
    Available tracks:
-   {output from `.agent/kf/bin/kf-track.py list --active`}
+   {output from `.agent/kf/bin/kf-track.py list --active --ref ${PRIMARY_BRANCH}`}
    ```
    **HALT.**
 
@@ -133,7 +133,7 @@ To see available tracks, run `.agent/kf/bin/kf-track.py list` or /kf-architect t
 
 3. **Check dependency graph — all prerequisites must be completed:**
    ```bash
-   .agent/kf/bin/kf-track.py deps check {trackId}
+   .agent/kf/bin/kf-track.py deps check {trackId} --ref ${PRIMARY_BRANCH}
    ```
 
    If the command exits non-zero (BLOCKED), **release the claim first**, then halt:
@@ -227,7 +227,7 @@ Load track context via CLI (now from the working tree, which is based on the pri
 .agent/kf/bin/kf-track-content.py progress {trackId}
 
 # Check conflict risk with other active tracks
-.agent/kf/bin/kf-track.py conflicts list {trackId}
+.agent/kf/bin/kf-track.py conflicts list {trackId} --ref ${PRIMARY_BRANCH}
 ```
 
 Also read project context:

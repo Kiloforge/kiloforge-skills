@@ -194,7 +194,7 @@ Before generating specs, assess the **full dependency graph** — not just betwe
 
 **Prefer subagents for this analysis when available.** If the Agent tool is available, spawn a subagent for each pending/in-progress track to check file and package overlaps in parallel. This is mechanical work (reading specs, checking import paths, comparing file lists) that doesn't require the primary model's full reasoning. The subagent should return a brief structured report: `{trackId, overlapping_files[], overlapping_packages[], conflict_level: high|medium|low, notes}`. If subagents are not available, perform the same analysis directly — the assessment is mandatory regardless of tooling.
 
-1. **Query active tracks** — run `.agent/kf/bin/kf-track.py list --active` to identify all pending and in-progress tracks, and read `tracks/deps.yaml` for their dependency edges
+1. **Query active tracks** — run `.agent/kf/bin/kf-track.py list --active --ref ${PRIMARY_BRANCH}` to identify all pending and in-progress tracks, and read dependency edges via `git show ${PRIMARY_BRANCH}:.agent/kf/tracks/deps.yaml`
 2. **For each pending/in-progress track**, spawn a subagent to check if the new work:
    - **Touches the same files or packages** → the new track either blocks or is blocked by the existing one
    - **Renames, moves, or restructures code** the existing track depends on → the new track **blocks** the existing track (or vice versa)
