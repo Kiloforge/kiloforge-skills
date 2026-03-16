@@ -12,13 +12,12 @@ This provides instant claim detection (read files) instead of slow
 branch scanning. A worktree lock is acquired before branch checkout
 and released after merge or abandonment.
 
-Stale lock detection: if the PID in the info file is dead and the lock
-is older than STALE_THRESHOLD seconds, it is auto-cleaned.
+Stale lock detection: locks older than STALE_THRESHOLD (12 hours) are
+auto-cleaned. Use `kf-claim release` for manual cleanup of stuck claims.
 """
 
 import json
 import os
-import signal
 import sys
 import time
 from datetime import datetime, timezone
@@ -27,7 +26,7 @@ from typing import Optional
 
 from . import git
 
-STALE_THRESHOLD = 300  # 5 minutes — auto-clean dead-PID locks older than this
+STALE_THRESHOLD = 43200  # 12 hours — auto-clean locks older than this
 
 
 def _claims_dir() -> Path:
@@ -47,15 +46,6 @@ def _info_path(worktree_name: str) -> Path:
     return _lock_dir(worktree_name) / "info"
 
 
-def _pid_alive(pid: int) -> bool:
-    """Check if a process is alive."""
-    try:
-        os.kill(pid, 0)
-        return True
-    except (OSError, ProcessLookupError):
-        return False
-
-
 def _parse_iso(ts: str) -> Optional[float]:
     """Parse ISO timestamp to epoch seconds."""
     try:
@@ -66,9 +56,14 @@ def _parse_iso(ts: str) -> Optional[float]:
 
 
 def _check_stale(worktree_name: str) -> bool:
-    """Check if a claim lock is stale (dead PID + old enough).
+    """Check if a claim lock is stale (older than STALE_THRESHOLD).
 
     Returns True if the lock was stale and has been cleaned.
+
+    Note: stale detection is age-based only. PID-based detection was removed
+    because kf-claim.py is a short-lived CLI process — the stored PID is
+    always dead immediately after acquire, which caused valid claims to be
+    garbage-collected after just 5 minutes.
     """
     info_file = _info_path(worktree_name)
     if not info_file.exists():
@@ -78,13 +73,6 @@ def _check_stale(worktree_name: str) -> bool:
         info = json.loads(info_file.read_text())
     except (json.JSONDecodeError, OSError):
         return False
-
-    pid = info.get("pid")
-    if not isinstance(pid, int):
-        return False
-
-    if _pid_alive(pid):
-        return False  # Process alive — lock is valid
 
     started = _parse_iso(info.get("started", ""))
     if started is None:
@@ -97,7 +85,7 @@ def _check_stale(worktree_name: str) -> bool:
         track_id = info.get("track_id", "unknown")
         print(
             f"Auto-cleaning stale claim: worktree={worktree_name} "
-            f"holder={holder} track={track_id} pid={pid} age={int(age)}s",
+            f"holder={holder} track={track_id} age={int(age)}s",
             file=sys.stderr,
         )
         try:
