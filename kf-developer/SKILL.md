@@ -1,6 +1,6 @@
 ---
 name: kf-developer
-description: Receive a track ID, validate it is an active unclaimed track, then implement it following the kiloforge workflow. Worker role in the track generation => approval => push to worker pipeline.
+description: Receive a track ID, validate it is an active unclaimed track, then implement it following the kiloforge workflow.
 metadata:
   argument-hint: "<track-id> [--disable-auto-merge] [--auto-exit[=SECONDS]]"
 ---
@@ -11,7 +11,7 @@ Implement a kiloforge track in a parallel worktree workflow. Receives a track ID
 
 ## Use this skill when
 
-- A track has been generated and approved via `/kf-architect`
+- A track exists and is available for implementation
 - You have been assigned a specific track ID to implement
 - You are a developer worker in a parallel worktree setup
 
