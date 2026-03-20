@@ -852,11 +852,13 @@ def validate_spec_ops(spec: SpecSnapshot,
 # ── Fulfillment readiness ────────────────────────────────────────────────────
 
 def fulfillment_status(spec: SpecSnapshot,
-                       tracks: dict[str, dict]) -> dict[str, dict]:
+                       tracks: dict[str, dict],
+                       include_archived: bool = False) -> dict[str, dict]:
     """Compute fulfillment readiness for each active spec item.
 
-    Examines track spec_refs (required-for) to determine which tracks
-    are needed for each spec item and whether they're all completed.
+    Examines track spec_refs (required-for, relates-to) to build a
+    complete picture of which tracks are linked to each spec item
+    and whether the required ones are completed.
 
     Args:
         spec: The current (materialized) spec snapshot.
@@ -865,9 +867,10 @@ def fulfillment_status(spec: SpecSnapshot,
     Returns:
         Dict of {item_id: {
             "status": spec item status,
-            "required_tracks": [track_ids required for this item],
-            "completed_tracks": [completed track_ids],
-            "pending_tracks": [incomplete track_ids],
+            "required_tracks": [{id, status, title}],
+            "related_tracks": [{id, status, title}],
+            "completed_required": int,
+            "total_required": int,
             "ready_for_assessment": bool (all required tracks completed),
             "has_requirements": bool (at least one track is required-for),
         }}
@@ -876,45 +879,175 @@ def fulfillment_status(spec: SpecSnapshot,
     """
     result = {}
 
-    # Build reverse index: spec_item → [track_ids required for it]
-    item_tracks: dict[str, list[str]] = {}
+    # Build reverse index: spec_item → {required: [tids], related: [tids]}
+    item_required: dict[str, list[str]] = {}
+    item_related: dict[str, list[str]] = {}
     for tid, meta in tracks.items():
+        if not include_archived and meta.get("status") == "archived":
+            continue
         spec_refs = meta.get("spec_refs")
         if not spec_refs or not isinstance(spec_refs, list):
             continue
         for ref in spec_refs:
             if not isinstance(ref, dict):
                 continue
-            if ref.get("action") == "required-for":
-                item_id = ref.get("item", "")
-                if item_id:
-                    item_tracks.setdefault(item_id, []).append(tid)
+            action = ref.get("action", "")
+            item_id = ref.get("item", "")
+            if not item_id:
+                continue
+            if action == "required-for":
+                item_required.setdefault(item_id, []).append(tid)
+            elif action == "relates-to":
+                item_related.setdefault(item_id, []).append(tid)
+
+    def _track_info(tid):
+        meta = tracks.get(tid, {})
+        return {
+            "id": tid,
+            "status": meta.get("status", "unknown"),
+            "title": meta.get("title", ""),
+        }
 
     for item_id, item_data in spec.items.items():
         status = item_data.get("status", "active")
         if status == "deprecated":
             continue
 
-        required = item_tracks.get(item_id, [])
-        completed = []
-        pending = []
-        for tid in required:
-            track_meta = tracks.get(tid, {})
-            if track_meta.get("status") == "completed":
-                completed.append(tid)
-            else:
-                pending.append(tid)
+        required = item_required.get(item_id, [])
+        related = item_related.get(item_id, [])
 
-        has_reqs = len(required) > 0
-        ready = has_reqs and len(pending) == 0
+        required_info = [_track_info(tid) for tid in sorted(required)]
+        related_info = [_track_info(tid) for tid in sorted(related)]
+
+        completed_count = sum(
+            1 for t in required_info if t["status"] == "completed")
+        total = len(required_info)
+        has_reqs = total > 0
+        ready = has_reqs and completed_count == total
 
         result[item_id] = {
             "status": status,
-            "required_tracks": sorted(required),
-            "completed_tracks": sorted(completed),
-            "pending_tracks": sorted(pending),
+            "required_tracks": required_info,
+            "related_tracks": related_info,
+            "completed_required": completed_count,
+            "total_required": total,
             "ready_for_assessment": ready,
             "has_requirements": has_reqs,
         }
 
+    return result
+
+
+def spec_item_tracks(spec: SpecSnapshot,
+                     item_id: str,
+                     tracks: dict[str, dict],
+                     include_archived: bool = False,
+                     ) -> Optional[dict]:
+    """Get all tracks linked to a single spec item with their state.
+
+    This is the "I'm on track A, it's required-for spec item B — what's
+    the full picture for spec item B?" query.
+
+    Args:
+        spec: The current (materialized) spec snapshot.
+        item_id: The spec item ID to query.
+        tracks: Dict of {track_id: track_meta_dict}.
+        include_archived: If True, include completed/archived tracks.
+                          If False, only active (pending/in-progress).
+
+    Returns:
+        None if item_id not found, otherwise:
+        {
+            "item_id": str,
+            "title": str,
+            "status": str,              # spec item status
+            "priority": str,
+            "required_tracks": [{id, status, title, type}],
+            "related_tracks": [{id, status, title, type}],
+            "completed_required": int,
+            "total_required": int,
+            "ready_for_assessment": bool,
+        }
+    """
+    item_data = spec.get_item(item_id)
+    if item_data is None:
+        return None
+
+    required = []
+    related = []
+
+    for tid, meta in tracks.items():
+        track_status = meta.get("status", "")
+        if not include_archived and track_status in ("archived",):
+            continue
+
+        spec_refs = meta.get("spec_refs")
+        if not spec_refs or not isinstance(spec_refs, list):
+            continue
+
+        for ref in spec_refs:
+            if not isinstance(ref, dict):
+                continue
+            if ref.get("item") != item_id:
+                continue
+            action = ref.get("action", "")
+            info = {
+                "id": tid,
+                "status": track_status,
+                "title": meta.get("title", ""),
+                "type": meta.get("type", ""),
+            }
+            if action == "required-for":
+                required.append(info)
+            elif action == "relates-to":
+                related.append(info)
+
+    required.sort(key=lambda t: t["id"])
+    related.sort(key=lambda t: t["id"])
+    completed = sum(1 for t in required if t["status"] == "completed")
+    total = len(required)
+
+    return {
+        "item_id": item_id,
+        "title": item_data.get("title", ""),
+        "status": item_data.get("status", "active"),
+        "priority": item_data.get("priority", ""),
+        "required_tracks": required,
+        "related_tracks": related,
+        "completed_required": completed,
+        "total_required": total,
+        "ready_for_assessment": total > 0 and completed == total,
+    }
+
+
+def spec_refs_for_track(track_meta: dict,
+                        spec: Optional[SpecSnapshot] = None,
+                        ) -> list[dict]:
+    """Get spec item links for a single track, enriched with spec item info.
+
+    Args:
+        track_meta: The track's meta dict (must have spec_refs field).
+        spec: Optional spec snapshot for enriching with item titles/status.
+
+    Returns:
+        List of {action, item, item_title, item_status} for each spec_ref.
+    """
+    spec_refs = track_meta.get("spec_refs")
+    if not spec_refs or not isinstance(spec_refs, list):
+        return []
+
+    result = []
+    for ref in spec_refs:
+        if not isinstance(ref, dict):
+            continue
+        action = ref.get("action", "")
+        item_id = ref.get("item", "")
+        if not action or not item_id:
+            continue
+        entry = {"action": action, "item": item_id}
+        if spec and spec.has_item(item_id):
+            item = spec.get_item(item_id) or {}
+            entry["item_title"] = item.get("title", "")
+            entry["item_status"] = item.get("status", "")
+        result.append(entry)
     return result

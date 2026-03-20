@@ -15,7 +15,7 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 
 from lib.spec import (
     SpecSnapshot, SpecOp, materialize, snapshot_from_materialized,
-    fulfillment_status,
+    fulfillment_status, spec_item_tracks, spec_refs_for_track,
     load_spec_ops, create_spec_op, validate_spec_refs, validate_spec_ops,
     draft_add, draft_load, draft_list, draft_finalize, draft_discard,
     check_uncommitted_drafts,
@@ -720,18 +720,19 @@ class TestFulfillmentStatus(unittest.TestCase):
         result = fulfillment_status(spec, {})
         self.assertFalse(result["auth.oauth2"]["has_requirements"])
         self.assertFalse(result["auth.oauth2"]["ready_for_assessment"])
+        self.assertEqual(result["auth.oauth2"]["total_required"], 0)
 
     def test_all_required_tracks_complete(self):
         spec = SpecSnapshot()
         spec.add_item("auth.oauth2", "OAuth2")
         tracks = {
             "track_a": {
-                "status": "completed",
+                "status": "completed", "title": "Auth Part 1",
                 "spec_refs": [{"action": "required-for",
                                "item": "auth.oauth2"}],
             },
             "track_b": {
-                "status": "completed",
+                "status": "completed", "title": "Auth Part 2",
                 "spec_refs": [{"action": "required-for",
                                "item": "auth.oauth2"}],
             },
@@ -740,20 +741,23 @@ class TestFulfillmentStatus(unittest.TestCase):
         fs = result["auth.oauth2"]
         self.assertTrue(fs["has_requirements"])
         self.assertTrue(fs["ready_for_assessment"])
-        self.assertEqual(len(fs["completed_tracks"]), 2)
-        self.assertEqual(len(fs["pending_tracks"]), 0)
+        self.assertEqual(fs["completed_required"], 2)
+        self.assertEqual(fs["total_required"], 2)
+        # required_tracks now contains dicts with id/status/title
+        self.assertEqual(len(fs["required_tracks"]), 2)
+        self.assertEqual(fs["required_tracks"][0]["status"], "completed")
 
     def test_some_tracks_pending(self):
         spec = SpecSnapshot()
         spec.add_item("auth.oauth2", "OAuth2")
         tracks = {
             "track_a": {
-                "status": "completed",
+                "status": "completed", "title": "A",
                 "spec_refs": [{"action": "required-for",
                                "item": "auth.oauth2"}],
             },
             "track_b": {
-                "status": "pending",
+                "status": "pending", "title": "B",
                 "spec_refs": [{"action": "required-for",
                                "item": "auth.oauth2"}],
             },
@@ -762,7 +766,47 @@ class TestFulfillmentStatus(unittest.TestCase):
         fs = result["auth.oauth2"]
         self.assertTrue(fs["has_requirements"])
         self.assertFalse(fs["ready_for_assessment"])
-        self.assertEqual(fs["pending_tracks"], ["track_b"])
+        self.assertEqual(fs["completed_required"], 1)
+        self.assertEqual(fs["total_required"], 2)
+
+    def test_related_tracks_included(self):
+        """relates-to tracks appear in related_tracks but don't affect readiness."""
+        spec = SpecSnapshot()
+        spec.add_item("auth.oauth2", "OAuth2")
+        tracks = {
+            "track_req": {
+                "status": "completed", "title": "Required",
+                "spec_refs": [{"action": "required-for",
+                               "item": "auth.oauth2"}],
+            },
+            "track_rel": {
+                "status": "pending", "title": "Related",
+                "spec_refs": [{"action": "relates-to",
+                               "item": "auth.oauth2"}],
+            },
+        }
+        result = fulfillment_status(spec, tracks)
+        fs = result["auth.oauth2"]
+        # Required track is complete → ready
+        self.assertTrue(fs["ready_for_assessment"])
+        # Related track shows up but doesn't block
+        self.assertEqual(len(fs["related_tracks"]), 1)
+        self.assertEqual(fs["related_tracks"][0]["id"], "track_rel")
+
+    def test_relates_to_only_not_required(self):
+        """Only relates-to links → has_requirements is False."""
+        spec = SpecSnapshot()
+        spec.add_item("auth.oauth2", "OAuth2")
+        tracks = {
+            "track_a": {
+                "status": "pending", "title": "A",
+                "spec_refs": [{"action": "relates-to",
+                               "item": "auth.oauth2"}],
+            },
+        }
+        result = fulfillment_status(spec, tracks)
+        self.assertFalse(result["auth.oauth2"]["has_requirements"])
+        self.assertEqual(len(result["auth.oauth2"]["related_tracks"]), 1)
 
     def test_multiple_items(self):
         spec = SpecSnapshot()
@@ -770,12 +814,12 @@ class TestFulfillmentStatus(unittest.TestCase):
         spec.add_item("api.rate", "Rate Limiting")
         tracks = {
             "track_auth": {
-                "status": "completed",
+                "status": "completed", "title": "Auth",
                 "spec_refs": [{"action": "required-for",
                                "item": "auth.oauth2"}],
             },
             "track_api": {
-                "status": "in-progress",
+                "status": "in-progress", "title": "API",
                 "spec_refs": [{"action": "required-for",
                                "item": "api.rate"}],
             },
@@ -783,20 +827,6 @@ class TestFulfillmentStatus(unittest.TestCase):
         result = fulfillment_status(spec, tracks)
         self.assertTrue(result["auth.oauth2"]["ready_for_assessment"])
         self.assertFalse(result["api.rate"]["ready_for_assessment"])
-
-    def test_relates_to_not_counted(self):
-        """relates-to links don't count as requirements."""
-        spec = SpecSnapshot()
-        spec.add_item("auth.oauth2", "OAuth2")
-        tracks = {
-            "track_a": {
-                "status": "pending",
-                "spec_refs": [{"action": "relates-to",
-                               "item": "auth.oauth2"}],
-            },
-        }
-        result = fulfillment_status(spec, tracks)
-        self.assertFalse(result["auth.oauth2"]["has_requirements"])
 
     def test_deprecated_items_excluded(self):
         spec = SpecSnapshot()
@@ -811,6 +841,135 @@ class TestFulfillmentStatus(unittest.TestCase):
         spec.items["auth.oauth2"]["status"] = "fulfilled"
         result = fulfillment_status(spec, {})
         self.assertEqual(result["auth.oauth2"]["status"], "fulfilled")
+
+
+class TestSpecItemTracks(unittest.TestCase):
+    """Test single spec item query."""
+
+    def test_basic_query(self):
+        spec = SpecSnapshot()
+        spec.add_item("auth.oauth2", "OAuth2", priority="high")
+        tracks = {
+            "track_a": {
+                "status": "completed", "title": "Auth Login", "type": "feature",
+                "spec_refs": [{"action": "required-for", "item": "auth.oauth2"}],
+            },
+            "track_b": {
+                "status": "in-progress", "title": "Auth Tokens", "type": "feature",
+                "spec_refs": [{"action": "required-for", "item": "auth.oauth2"}],
+            },
+            "track_c": {
+                "status": "pending", "title": "Auth Docs", "type": "chore",
+                "spec_refs": [{"action": "relates-to", "item": "auth.oauth2"}],
+            },
+            "track_d": {
+                "status": "completed", "title": "Unrelated", "type": "feature",
+                "spec_refs": [{"action": "required-for", "item": "api.other"}],
+            },
+        }
+        result = spec_item_tracks(spec, "auth.oauth2", tracks)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["title"], "OAuth2")
+        self.assertEqual(result["priority"], "high")
+        self.assertEqual(result["total_required"], 2)
+        self.assertEqual(result["completed_required"], 1)
+        self.assertFalse(result["ready_for_assessment"])
+        self.assertEqual(len(result["related_tracks"]), 1)
+        self.assertEqual(result["related_tracks"][0]["id"], "track_c")
+
+    def test_nonexistent_item(self):
+        spec = SpecSnapshot()
+        self.assertIsNone(spec_item_tracks(spec, "nope", {}))
+
+    def test_excludes_archived_by_default(self):
+        spec = SpecSnapshot()
+        spec.add_item("auth.oauth2", "OAuth2")
+        tracks = {
+            "track_a": {
+                "status": "archived", "title": "Old",
+                "spec_refs": [{"action": "required-for", "item": "auth.oauth2"}],
+            },
+            "track_b": {
+                "status": "completed", "title": "Current",
+                "spec_refs": [{"action": "required-for", "item": "auth.oauth2"}],
+            },
+        }
+        result = spec_item_tracks(spec, "auth.oauth2", tracks)
+        self.assertEqual(result["total_required"], 1)
+        self.assertEqual(result["required_tracks"][0]["id"], "track_b")
+
+    def test_include_archived(self):
+        spec = SpecSnapshot()
+        spec.add_item("auth.oauth2", "OAuth2")
+        tracks = {
+            "track_a": {
+                "status": "archived", "title": "Old",
+                "spec_refs": [{"action": "required-for", "item": "auth.oauth2"}],
+            },
+            "track_b": {
+                "status": "completed", "title": "Current",
+                "spec_refs": [{"action": "required-for", "item": "auth.oauth2"}],
+            },
+        }
+        result = spec_item_tracks(spec, "auth.oauth2", tracks,
+                                  include_archived=True)
+        self.assertEqual(result["total_required"], 2)
+
+    def test_ready_when_all_complete(self):
+        spec = SpecSnapshot()
+        spec.add_item("auth.oauth2", "OAuth2")
+        tracks = {
+            "track_a": {
+                "status": "completed", "title": "A",
+                "spec_refs": [{"action": "required-for", "item": "auth.oauth2"}],
+            },
+        }
+        result = spec_item_tracks(spec, "auth.oauth2", tracks)
+        self.assertTrue(result["ready_for_assessment"])
+
+
+class TestSpecRefsForTrack(unittest.TestCase):
+    """Test per-track spec ref querying."""
+
+    def test_basic(self):
+        track = {
+            "spec_refs": [
+                {"action": "required-for", "item": "auth.oauth2"},
+                {"action": "relates-to", "item": "api.rate"},
+            ]
+        }
+        refs = spec_refs_for_track(track)
+        self.assertEqual(len(refs), 2)
+        self.assertEqual(refs[0]["action"], "required-for")
+        self.assertEqual(refs[0]["item"], "auth.oauth2")
+
+    def test_enriched_with_spec(self):
+        spec = SpecSnapshot()
+        spec.add_item("auth.oauth2", "OAuth2 Authentication")
+        track = {
+            "spec_refs": [
+                {"action": "required-for", "item": "auth.oauth2"},
+            ]
+        }
+        refs = spec_refs_for_track(track, spec=spec)
+        self.assertEqual(refs[0]["item_title"], "OAuth2 Authentication")
+        self.assertEqual(refs[0]["item_status"], "active")
+
+    def test_no_spec_refs(self):
+        self.assertEqual(spec_refs_for_track({}), [])
+        self.assertEqual(spec_refs_for_track({"spec_refs": []}), [])
+
+    def test_missing_spec_item(self):
+        """If spec item doesn't exist, no enrichment."""
+        spec = SpecSnapshot()
+        track = {
+            "spec_refs": [
+                {"action": "required-for", "item": "nonexistent"},
+            ]
+        }
+        refs = spec_refs_for_track(track, spec=spec)
+        self.assertEqual(len(refs), 1)
+        self.assertNotIn("item_title", refs[0])
 
 
 if __name__ == "__main__":
