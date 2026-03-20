@@ -696,117 +696,25 @@ class TracksRegistry:
 
 # ── Compacted track recovery ─────────────────────────────────────────────
 
-def load_compacted_tracks(compactions_file: Path,
-                          tracks_dir_rel: str = ".agent/kf/tracks",
+def load_compacted_tracks(compactions_dir: Optional[Path] = None,
+                          tracks_dir: Optional[Path] = None,
                           ) -> dict[str, dict]:
-    """Recover track metadata from compacted archives via git history.
+    """Load compacted track metadata from tarball archives.
 
-    Reads compactions.yaml to find commit hashes and track IDs, then
-    uses git cat-file --batch to recover meta.yaml (or legacy tracks.yaml
-    entries) for each compacted track.
-
-    This is an expensive operation — only call when include_compacted
-    is needed (full history queries).
+    Args:
+        compactions_dir: Direct path to _compacted/ dir. If None, derived
+                         from tracks_dir.
+        tracks_dir: The .agent/kf/tracks/ directory. Used to derive
+                    compactions_dir if not provided directly.
 
     Returns:
-        Dict of {track_id: track_meta_dict} for recovered tracks.
+        Dict of {track_id: track_meta_dict} for all compacted tracks.
     """
-    if not compactions_file.exists():
+    from lib.compaction import load_all_compacted_tracks
+    if compactions_dir is None and tracks_dir is not None:
+        compactions_dir = tracks_dir / "_compacted"
+    if compactions_dir is None:
         return {}
-
-    # Parse compactions.yaml: each line is "<commit>: {json}"
-    compaction_records = []
-    for line in compactions_file.read_text().splitlines():
-        if not line.strip() or line.startswith("#"):
-            continue
-        try:
-            ci = line.index(":")
-            commit = line[:ci].strip()
-            jstr = line[ci + 1:].strip()
-            data = json.loads(jstr)
-            track_ids = data.get("track_ids", [])
-            if commit and track_ids:
-                compaction_records.append((commit, track_ids))
-        except (ValueError, json.JSONDecodeError):
-            continue
-
-    if not compaction_records:
-        return {}
-
-    recovered = {}
-
-    for commit, track_ids in compaction_records:
-        # Try to batch-read meta.yaml files from this commit
-        object_specs = "\n".join(
-            f"{commit}:{tracks_dir_rel}/{tid}/meta.yaml"
-            for tid in track_ids
-        ) + "\n"
-
-        result = subprocess.run(
-            ["git", "cat-file", "--batch"],
-            input=object_specs,
-            capture_output=True, text=True, check=False,
-        )
-
-        if result.returncode != 0:
-            continue
-
-        output = result.stdout
-        pos = 0
-        meta_found = False
-
-        for tid in track_ids:
-            if tid in recovered:
-                continue  # already recovered from a newer compaction
-
-            nl = output.find("\n", pos)
-            if nl == -1:
-                break
-            header = output[pos:nl]
-            pos = nl + 1
-
-            if "missing" in header:
-                continue
-
-            parts = header.split()
-            if len(parts) < 3:
-                continue
-            try:
-                size = int(parts[2])
-            except (ValueError, IndexError):
-                continue
-
-            content = output[pos:pos + size]
-            pos += size
-            if pos < len(output) and output[pos] == "\n":
-                pos += 1
-
-            try:
-                data = yaml.safe_load(content)
-                if isinstance(data, dict):
-                    recovered[tid] = data
-                    meta_found = True
-            except yaml.YAMLError:
-                pass
-
-        # If no meta.yaml found, try legacy tracks.yaml from that commit
-        if not meta_found:
-            legacy_text = _run_git("show",
-                                   f"{commit}:.agent/kf/tracks.yaml")
-            if legacy_text.strip():
-                for line in legacy_text.strip().splitlines():
-                    if not line or line.startswith("#"):
-                        continue
-                    try:
-                        ci = line.index(":")
-                        tid = line[:ci].strip()
-                        jstr = line[ci + 1:].strip()
-                        if tid in track_ids and tid not in recovered:
-                            data = json.loads(jstr)
-                            data.setdefault("deps", [])
-                            data.setdefault("conflicts", [])
-                            recovered[tid] = data
-                    except (ValueError, json.JSONDecodeError):
-                        continue
-
-    return recovered
+    # load_all_compacted_tracks expects the tracks dir (parent of _compacted)
+    parent = compactions_dir.parent
+    return load_all_compacted_tracks(parent)

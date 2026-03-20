@@ -180,6 +180,159 @@ def migrate_003_remove_local_bin(kf_dir: Path):
         print("    Removed .agent/kf/.venv (venv now at ~/.kf/.venv/)")
 
 
+# ── Migration v4: Compaction tarballs ─────────────────────────────────────────
+
+def migrate_004_compaction_tarballs(kf_dir: Path):
+    """Convert git-history compactions to tarball archives.
+
+    Reads compactions.yaml, extracts tracks from git history,
+    creates tarballs in _compacted/, removes compactions.yaml.
+    """
+    import json as _json
+    import subprocess
+    import tarfile
+    import tempfile
+    import secrets
+    from datetime import datetime, timezone
+
+    import yaml
+
+    compactions_file = kf_dir / "compactions.yaml"
+    tracks_dir = kf_dir / "tracks"
+
+    if not compactions_file.exists():
+        return  # nothing to migrate
+
+    # Parse compactions.yaml: each line is "<commit>: {json}"
+    compaction_records = []
+    for line in compactions_file.read_text().splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        try:
+            ci = line.index(":")
+            commit = line[:ci].strip()
+            jstr = line[ci + 1:].strip()
+            data = _json.loads(jstr)
+            track_ids = data.get("track_ids", [])
+            if commit and track_ids:
+                compaction_records.append((commit, data, track_ids))
+        except (ValueError, _json.JSONDecodeError):
+            continue
+
+    if not compaction_records:
+        # No valid records, just clean up the file
+        compactions_file.unlink()
+        print("    Removed empty compactions.yaml")
+        return
+
+    compacted_dir = tracks_dir / "_compacted"
+    compacted_dir.mkdir(parents=True, exist_ok=True)
+    converted = 0
+
+    for commit, record_data, track_ids in compaction_records:
+        # Try to extract track files from git history
+        tmp_dir = Path(tempfile.mkdtemp(prefix="kf-migrate-"))
+        any_extracted = False
+
+        try:
+            for tid in track_ids:
+                track_tmp = tmp_dir / tid
+                track_tmp.mkdir(parents=True, exist_ok=True)
+
+                # Try meta.yaml first
+                for fname in ("meta.yaml", "track.yaml", "spec.md"):
+                    result = subprocess.run(
+                        ["git", "show",
+                         f"{commit}:.agent/kf/tracks/{tid}/{fname}"],
+                        capture_output=True, text=True, check=False,
+                    )
+                    if result.returncode == 0 and result.stdout.strip():
+                        (track_tmp / fname).write_text(result.stdout)
+                        any_extracted = True
+
+                # Also try _archive path
+                if not (track_tmp / "meta.yaml").exists():
+                    result = subprocess.run(
+                        ["git", "show",
+                         f"{commit}:.agent/kf/tracks/_archive/{tid}/meta.yaml"],
+                        capture_output=True, text=True, check=False,
+                    )
+                    if result.returncode == 0 and result.stdout.strip():
+                        (track_tmp / "meta.yaml").write_text(result.stdout)
+                        any_extracted = True
+
+                # Fall back to legacy tracks.yaml entry
+                if not (track_tmp / "meta.yaml").exists():
+                    legacy_text = subprocess.run(
+                        ["git", "show",
+                         f"{commit}:.agent/kf/tracks.yaml"],
+                        capture_output=True, text=True, check=False,
+                    )
+                    if legacy_text.returncode == 0 and legacy_text.stdout.strip():
+                        for lline in legacy_text.stdout.splitlines():
+                            if not lline or lline.startswith("#"):
+                                continue
+                            try:
+                                lci = lline.index(":")
+                                ltid = lline[:lci].strip()
+                                ljstr = lline[lci + 1:].strip()
+                                if ltid == tid:
+                                    ldata = _json.loads(ljstr)
+                                    ldata.setdefault("deps", [])
+                                    ldata.setdefault("conflicts", [])
+                                    (track_tmp / "meta.yaml").write_text(
+                                        yaml.dump(ldata,
+                                                  default_flow_style=False,
+                                                  sort_keys=False))
+                                    any_extracted = True
+                            except (ValueError, _json.JSONDecodeError):
+                                continue
+
+            if not any_extracted:
+                print(f"    SKIP compaction {commit[:10]}: "
+                      f"no track data recoverable from git history")
+                continue
+
+            # Create tarball
+            ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%SZ")
+            h = secrets.token_hex(3)
+            basename = f"{ts}-{h}"
+            tarball_path = compacted_dir / f"{basename}.tar.gz"
+            index_path = compacted_dir / f"{basename}.json"
+
+            with tarfile.open(tarball_path, "w:gz") as tar:
+                for tid in track_ids:
+                    track_tmp = tmp_dir / tid
+                    if track_tmp.is_dir() and any(track_tmp.iterdir()):
+                        tar.add(str(track_tmp), arcname=tid)
+
+            # Create JSON index from original record data
+            index_data = {
+                "date": record_data.get("date", ""),
+                "track_ids": track_ids,
+                "track_count": len(track_ids),
+                "completed": record_data.get("completed", 0),
+                "archived": record_data.get("archived", 0),
+                "first_created": record_data.get("first_created", ""),
+                "last_created": record_data.get("last_created", ""),
+                "migrated_from_commit": commit,
+            }
+            if record_data.get("source"):
+                index_data["source"] = record_data["source"]
+
+            index_path.write_text(
+                _json.dumps(index_data, indent=2) + "\n")
+            converted += 1
+
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    # Remove compactions.yaml
+    compactions_file.unlink()
+    print(f"    Converted {converted} compaction(s) to tarballs")
+    print("    Removed compactions.yaml")
+
+
 # ── Migration registry ───────────────────────────────────────────────────────
 # (version, name, description, function)
 
@@ -193,4 +346,7 @@ MIGRATIONS = [
     (3, "remove_local_bin",
      "Remove per-project bin/ and .venv (moved to ~/.kf/)",
      migrate_003_remove_local_bin),
+    (4, "compaction_tarballs",
+     "Convert git-history compactions to tarball archives",
+     migrate_004_compaction_tarballs),
 ]

@@ -960,7 +960,7 @@ def cmd_compact(args):
 def _compact_run(args):
     dry_run = "--dry-run" in args
 
-    ensure_compactions_file()
+    from lib.compaction import compact_tracks
 
     reg = _get_registry()
 
@@ -1002,15 +1002,11 @@ def _compact_run(args):
             if last_created is None or created > last_created:
                 last_created = created
 
-    commit_hash = run_git("rev-parse", "HEAD") or "unknown"
-    compact_date = today_iso()
-
     print("Compaction summary:")
     print(f"  Total tracks to compact: {total}")
     print(f"  From _archive/:          {archived_count}")
     print(f"  Completed (with dirs):   {completed_count}")
     print(f"  Date range:              {first_created or 'unknown'} \u2014 {last_created or 'unknown'}")
-    print(f"  Recovery commit:         {commit_hash}")
     print()
 
     if dry_run:
@@ -1021,161 +1017,98 @@ def _compact_run(args):
             print(f"  {tid}")
         return 0
 
-    record = {
-        "date": compact_date,
-        "completed": completed_count,
-        "archived": archived_count,
-        "track_ids": compactable_ids,
-        "first_created": first_created or "",
-        "last_created": last_created or "",
-    }
-    record_json = json.dumps(record, separators=(",", ":"))
-
-    # Delete directories
-    for tid in archived_dir_ids:
-        shutil.rmtree(ARCHIVE_DIR / tid, ignore_errors=True)
-    try:
-        ARCHIVE_DIR.rmdir()
-    except OSError:
-        pass
-
-    for tid in completed_ids:
-        shutil.rmtree(TRACKS_DIR / tid, ignore_errors=True)
-
-    # Archive completed tracks in registry
-    for tid in completed_ids:
-        if reg.exists(tid):
-            reg.set_field(tid, "status", "archived")
-            reg.set_field(tid, "archived_at", compact_date)
-            reg.set_field(tid, "archive_reason", f"compacted \u2014 recover from {commit_hash}")
-    # Save any remaining tracks (those not deleted)
-    remaining = [tid for tid in completed_ids if reg.exists(tid) and (TRACKS_DIR / tid).exists()]
-    if remaining:
-        reg.save(track_ids=remaining)
-
-    # Record compaction
-    with open(COMPACTIONS_FILE, "a") as f:
-        f.write(f"{commit_hash}: {record_json}\n")
+    # Create tarball archive via lib/compaction
+    tarball_path = compact_tracks(TRACKS_DIR, compactable_ids)
 
     # Commit
-    run_git("add", str(TRACKS_DIR), str(TRACKS_FILE), str(COMPACTIONS_FILE))
-    run_git("commit", "-m", f"chore: compact archive ({completed_count} completed, {archived_count} archived \u2014 recover from {commit_hash})")
+    run_git("add", str(TRACKS_DIR))
+    run_git("commit", "-m",
+            f"chore: compact archive ({completed_count} completed, "
+            f"{archived_count} archived) into {tarball_path.name}")
 
     print("Compaction complete.")
-    print(f"  Removed {total} track directories")
-    print(f"  Recovery: git show {commit_hash}:.agent/kf/tracks/<trackId>/spec.md")
+    print(f"  Archived {total} track directories to {tarball_path.name}")
+    print(f"  Recovery: kf-track compact recover {tarball_path.stem.rsplit('.', 1)[0]}")
     return 0
 
 
 def _compact_list(args):
     fmt = args[0] if args else "--table"
-    ensure_compactions_file()
 
-    lines = [l for l in read_file_lines(COMPACTIONS_FILE) if l.strip() and not l.startswith("#")]
+    from lib.compaction import list_compactions
 
-    if not lines:
+    records = list_compactions(TRACKS_DIR)
+
+    if not records:
         print("(no compaction records)")
         return 0
 
     if fmt == "--json":
-        for line in lines:
-            hash_val = line.split(":")[0]
-            raw = line[line.index("{"):] if "{" in line else "{}"
-            try:
-                data = json.loads(raw)
-                data["commit"] = hash_val
-                print(json.dumps(data, separators=(",", ":")))
-            except json.JSONDecodeError:
-                print(f'{{"commit":"{hash_val}",{raw[1:]}')
+        for rec in records:
+            print(json.dumps(rec, separators=(",", ":")))
     else:
-        print(f"{'COMMIT':<12} {'DATE':<12} {'SOURCE':<12} {'COMPLETED':<10} {'ARCHIVED':<10} {'FIRST':<12} {'LAST':<12}")
-        print(f"{'------':<12} {'----':<12} {'------':<12} {'---------':<10} {'--------':<10} {'-----':<12} {'----':<12}")
-        for line in lines:
-            hash_val = line.split(":")[0]
-            raw = line[line.index("{"):] if "{" in line else "{}"
-            try:
-                data = json.loads(raw)
-                date = data.get("date", "")
-                source = data.get("source", "kf")
-                completed = data.get("completed", 0)
-                archived = data.get("archived", 0)
-                fc = data.get("first_created", "")
-                lc = data.get("last_created", "")
-            except json.JSONDecodeError:
-                date = source = fc = lc = ""
-                completed = archived = 0
-            print(f"{hash_val[:10]:<12} {date:<12} {source:<12} {str(completed):<10} {str(archived):<10} {fc:<12} {lc:<12}")
+        print(f"{'NAME':<32} {'DATE':<12} {'TRACKS':<8} {'COMPLETED':<10} {'ARCHIVED':<10} {'FIRST':<12} {'LAST':<12}")
+        print(f"{'----':<32} {'----':<12} {'------':<8} {'---------':<10} {'--------':<10} {'-----':<12} {'----':<12}")
+        for rec in records:
+            name = rec.get("name", "")
+            date = rec.get("date", "")
+            track_count = rec.get("track_count", len(rec.get("track_ids", [])))
+            completed = rec.get("completed", 0)
+            archived = rec.get("archived", 0)
+            fc = rec.get("first_created", "")
+            lc = rec.get("last_created", "")
+            print(f"{name:<32} {date:<12} {str(track_count):<8} {str(completed):<10} {str(archived):<10} {fc:<12} {lc:<12}")
         print()
-        print(f"{len(lines)} compaction(s)")
+        print(f"{len(records)} compaction(s)")
 
     return 0
 
 
 def _compact_recover(args):
     if not args:
-        print("Usage: kf-track compact recover <commit-hash>", file=sys.stderr)
+        print("Usage: kf-track compact recover <compaction-name>", file=sys.stderr)
         print("", file=sys.stderr)
-        print("Shows recovery commands for a compaction point.", file=sys.stderr)
-        print("Use 'kf-track compact list' to see available compaction points.", file=sys.stderr)
+        print("Extracts a compaction tarball to a temporary directory.", file=sys.stderr)
+        print("Use 'kf-track compact list' to see available compaction names.", file=sys.stderr)
         return 1
 
-    hash_arg = args[0]
-    ensure_compactions_file()
+    name_arg = args[0]
 
-    lines = read_file_lines(COMPACTIONS_FILE)
-    match_line = None
-    for line in lines:
-        if line.startswith(hash_arg):
-            match_line = line
+    from lib.compaction import extract_compaction, list_compactions
+
+    # Find matching compaction by name prefix
+    records = list_compactions(TRACKS_DIR)
+    match_name = None
+    for rec in records:
+        rec_name = rec.get("name", "")
+        if rec_name == name_arg or rec_name.startswith(name_arg):
+            match_name = rec_name
             break
 
-    if not match_line:
-        print(f"ERROR: No compaction record found for commit {hash_arg}", file=sys.stderr)
-        print("Use 'kf-track compact list' to see available compaction points.", file=sys.stderr)
+    if not match_name:
+        print(f"ERROR: No compaction found matching '{name_arg}'", file=sys.stderr)
+        print("Use 'kf-track compact list' to see available compactions.", file=sys.stderr)
         return 1
 
-    full_hash = match_line.split(":")[0]
-    raw = match_line[match_line.index("{"):] if "{" in match_line else "{}"
-
-    source = "kf"
-    track_ids = []
     try:
-        data = json.loads(raw)
-        source = data.get("source", "kf")
-        track_ids = data.get("track_ids", [])
-    except json.JSONDecodeError:
-        pass
+        tmp_dir = extract_compaction(TRACKS_DIR, match_name)
+    except FileNotFoundError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
 
-    print(f"Recovery commands for compaction {full_hash[:10]} (source: {source}):")
+    print(f"Extracted compaction '{match_name}' to:")
+    print(f"  {tmp_dir}")
     print()
-
-    if source == "conductor":
-        print("# This is a conductor-era compaction. Use .agent/conductor/ paths:")
-        print()
-        print("# Full track registry (markdown table):")
-        print(f"git show {full_hash}:.agent/conductor/tracks.md")
-        print()
-        print("# List archived track directories:")
-        print(f"git ls-tree {full_hash} .agent/conductor/tracks/_archive/")
-        print()
-        print("# List all track directories:")
-        print(f"git ls-tree {full_hash} .agent/conductor/tracks/")
-        print()
-        print("# Recover a specific track's spec:")
-        print(f"git show {full_hash}:.agent/conductor/tracks/<trackId>/spec.md")
-        print(f"git show {full_hash}:.agent/conductor/tracks/_archive/<trackId>/spec.md")
-    else:
-        print("# List all track directories at that point:")
-        print(f"git ls-tree {full_hash} .agent/kf/tracks/")
-        print()
-        print("# Full track registry at that point:")
-        print(f"git show {full_hash}:.agent/kf/tracks.yaml")
-        print()
-        if track_ids:
-            print("# Recover specific tracks:")
-            for tid in track_ids:
-                if tid:
-                    print(f"git show {full_hash}:.agent/kf/tracks/{tid}/spec.md")
+    print("Track directories:")
+    for d in sorted(tmp_dir.iterdir()):
+        if d.is_dir():
+            print(f"  {d.name}/")
+    print()
+    print("To restore a track, copy its directory back:")
+    print(f"  cp -r {tmp_dir}/<track-id> {TRACKS_DIR}/")
+    print()
+    print("Clean up when done:")
+    print(f"  rm -rf {tmp_dir}")
 
     return 0
 
