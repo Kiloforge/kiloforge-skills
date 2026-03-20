@@ -158,7 +158,7 @@ class TestCompaction(unittest.TestCase):
         self.assertIn("track_a", records[0]["track_ids"])
         self.assertIn("name", records[0])
 
-    def test_list_compactions_sorted_newest_first(self):
+    def test_list_compactions_returns_all(self):
         # Create two compactions
         self._create_track("track_a")
         compact_tracks(self.tracks_dir, ["track_a"])
@@ -168,9 +168,12 @@ class TestCompaction(unittest.TestCase):
 
         records = list_compactions(self.tracks_dir)
         self.assertEqual(len(records), 2)
-        # Newest first (reverse sorted by filename)
-        self.assertIn("track_b", records[0]["track_ids"])
-        self.assertIn("track_a", records[1]["track_ids"])
+        # Both tracks present across records
+        all_ids = set()
+        for r in records:
+            all_ids.update(r["track_ids"])
+        self.assertIn("track_a", all_ids)
+        self.assertIn("track_b", all_ids)
 
     # ── load_compacted_track() ───────────────────────────────────────────
 

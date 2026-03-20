@@ -701,6 +701,9 @@ def load_compacted_tracks(compactions_dir: Optional[Path] = None,
                           ) -> dict[str, dict]:
     """Load compacted track metadata from tarball archives.
 
+    If a legacy compactions.yaml is found, triggers on-demand conversion
+    to tarballs (progressive disclosure — only when data is needed).
+
     Args:
         compactions_dir: Direct path to _compacted/ dir. If None, derived
                          from tracks_dir.
@@ -711,10 +714,21 @@ def load_compacted_tracks(compactions_dir: Optional[Path] = None,
         Dict of {track_id: track_meta_dict} for all compacted tracks.
     """
     from lib.compaction import load_all_compacted_tracks
+
     if compactions_dir is None and tracks_dir is not None:
         compactions_dir = tracks_dir / "_compacted"
     if compactions_dir is None:
         return {}
-    # load_all_compacted_tracks expects the tracks dir (parent of _compacted)
+
+    # Check for legacy compactions.yaml and convert on-demand
+    kf_dir = compactions_dir.parent.parent  # _compacted → tracks → kf
+    legacy_file = kf_dir / "compactions.yaml"
+    if legacy_file.exists():
+        try:
+            from lib.migrate import ensure_compaction_migrated
+            ensure_compaction_migrated(kf_dir)
+        except Exception:
+            pass  # best-effort — don't block on migration failure
+
     parent = compactions_dir.parent
     return load_all_compacted_tracks(parent)

@@ -36,15 +36,30 @@ def set_meta_version(kf_dir: Path, version: int):
 
 
 def run_pending_migrations(kf_dir: Path, dry_run: bool = False) -> list[str]:
-    """Run all pending migrations for a project.
+    """Run all pending eager migrations for a project.
+
+    Deferred migrations (marked lazy=True) are NOT run here — they
+    trigger automatically when old data is encountered at runtime.
 
     Returns list of migration descriptions that were applied.
     """
     current = get_meta_version(kf_dir)
     applied = []
 
-    for version, name, description, fn in MIGRATIONS:
+    for entry in MIGRATIONS:
+        version, name, description, fn = entry[:4]
+        lazy = entry[4] if len(entry) > 4 else False
+
         if version <= current:
+            continue
+
+        if lazy:
+            # Deferred migration — skip during bulk migration.
+            # Bumps version so it doesn't block subsequent migrations,
+            # but the actual conversion happens on-demand.
+            if not dry_run:
+                set_meta_version(kf_dir, version)
+            applied.append(f"v{version}: {description} (deferred)")
             continue
 
         if dry_run:
@@ -333,8 +348,25 @@ def migrate_004_compaction_tarballs(kf_dir: Path):
     print("    Removed compactions.yaml")
 
 
+# ── On-demand migration trigger ──────────────────────────────────────────────
+
+def ensure_compaction_migrated(kf_dir: Path):
+    """Trigger compaction tarball migration if old compactions.yaml exists.
+
+    Called lazily by load_compacted_tracks() when it encounters the old
+    format. This is a progressive disclosure pattern — the migration only
+    runs when an agent actually needs compacted data.
+    """
+    compactions_file = kf_dir / "compactions.yaml"
+    if compactions_file.exists():
+        print("  Found legacy compactions.yaml — converting to tarballs...")
+        migrate_004_compaction_tarballs(kf_dir)
+
+
 # ── Migration registry ───────────────────────────────────────────────────────
-# (version, name, description, function)
+# (version, name, description, function, lazy)
+# lazy=True means the migration is deferred — it runs on-demand when old
+# data is encountered, not eagerly during preflight/update.
 
 MIGRATIONS = [
     (1, "per_track_meta",
@@ -348,5 +380,5 @@ MIGRATIONS = [
      migrate_003_remove_local_bin),
     (4, "compaction_tarballs",
      "Convert git-history compactions to tarball archives",
-     migrate_004_compaction_tarballs),
+     migrate_004_compaction_tarballs, True),  # lazy — runs on-demand
 ]
