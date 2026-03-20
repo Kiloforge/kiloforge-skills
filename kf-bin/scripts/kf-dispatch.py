@@ -31,7 +31,8 @@ import subprocess
 import sys
 from collections import defaultdict
 
-import yaml
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from lib.tracks import TracksRegistry
 
 
 def run(cmd, **kwargs):
@@ -63,12 +64,13 @@ def get_primary_branch():
 
 def get_config(ref):
     """Read config.yaml from the primary branch."""
+    import yaml as _yaml
     output = run(f"git show {ref}:.agent/kf/config.yaml 2>/dev/null")
     if not output:
         return {}
     try:
-        return yaml.safe_load(output) or {}
-    except yaml.YAMLError:
+        return _yaml.safe_load(output) or {}
+    except _yaml.YAMLError:
         return {}
 
 
@@ -118,19 +120,10 @@ def get_worktree_state():
     return idle, active, unknown
 
 
-def parse_track_status(ref):
-    """Parse tracks.yaml via git show and yaml.safe_load."""
-    output = run(f"git show {ref}:.agent/kf/tracks.yaml 2>/dev/null")
-    if not output:
-        return {}, [], [], [], []
-
-    try:
-        data = yaml.safe_load(output)
-    except yaml.YAMLError:
-        return {}, [], [], [], []
-
-    if not isinstance(data, dict):
-        return {}, [], [], [], []
+def parse_track_status(ref, registry=None):
+    """Read track status from the TracksRegistry for the given ref."""
+    if registry is None:
+        registry = TracksRegistry.from_ref(ref)
 
     all_tracks = {}
     available = []
@@ -138,9 +131,10 @@ def parse_track_status(ref):
     claimed = []
     completed = []
 
-    for track_id, info in data.items():
+    for track_id, info in registry.all_entries().items():
         if not isinstance(info, dict):
             continue
+        info = dict(info)  # copy to avoid mutating registry internals
         info["id"] = track_id
         all_tracks[track_id] = info
         status = info.get("status", "")
@@ -155,39 +149,18 @@ def parse_track_status(ref):
     return all_tracks, available, blocked, claimed, completed
 
 
-def parse_deps(ref):
-    """Parse deps.yaml via git show and yaml.safe_load."""
-    output = run(f"git show {ref}:.agent/kf/tracks/deps.yaml 2>/dev/null")
-    if not output:
-        return {}
-
-    try:
-        data = yaml.safe_load(output)
-    except yaml.YAMLError:
-        return {}
-
-    if not isinstance(data, dict):
-        return {}
-
-    # Ensure all values are lists
-    return {k: (v if isinstance(v, list) else []) for k, v in data.items()}
+def parse_deps(ref, registry=None):
+    """Read dependency graph from the TracksRegistry for the given ref."""
+    if registry is None:
+        registry = TracksRegistry.from_ref(ref)
+    return registry.all_deps()
 
 
-def parse_conflicts(ref):
-    """Parse conflicts.yaml via git show and yaml.safe_load."""
-    output = run(f"git show {ref}:.agent/kf/tracks/conflicts.yaml 2>/dev/null")
-    if not output:
-        return {}
-
-    try:
-        data = yaml.safe_load(output)
-    except yaml.YAMLError:
-        return {}
-
-    if not isinstance(data, dict):
-        return {}
-
-    return data
+def parse_conflicts(ref, registry=None):
+    """Read conflict pairs from the TracksRegistry for the given ref."""
+    if registry is None:
+        registry = TracksRegistry.from_ref(ref)
+    return registry.all_conflict_pairs()
 
 
 def parse_active_claims():
@@ -303,8 +276,11 @@ def main():
     # Scan worktrees
     idle, active, unknown = get_worktree_state()
 
+    # Load track registry once and pass through to avoid redundant git calls
+    registry = TracksRegistry.from_ref(ref)
+
     # Read track state
-    all_tracks, _, _, claimed, completed = parse_track_status(ref)
+    all_tracks, _, _, claimed, completed = parse_track_status(ref, registry=registry)
     if not all_tracks:
         if args.json:
             print(json.dumps({"error": "no_tracks", "message": "No tracks found"}))
@@ -331,9 +307,9 @@ def main():
     config = get_config(ref)
     require_approval = config.get("require_approval", True)
 
-    # Read deps and conflicts
-    deps = parse_deps(ref)
-    conflicts = parse_conflicts(ref)
+    # Read deps and conflicts from the same registry instance
+    deps = parse_deps(ref, registry=registry)
+    conflicts = parse_conflicts(ref, registry=registry)
 
     # Classify pending tracks (exclude actively claimed and unapproved tracks)
     available, blocked, unapproved = classify_pending(

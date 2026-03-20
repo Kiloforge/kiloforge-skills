@@ -51,12 +51,16 @@ import threading
 
 KF_BIN = os.path.dirname(os.path.realpath(__file__))
 
-STATE_FILES = [
+# Legacy centralized state files (still resolved during migration period)
+LEGACY_STATE_FILES = [
     ".agent/kf/tracks.yaml",
     ".agent/kf/tracks/deps.yaml",
     ".agent/kf/tracks/conflicts.yaml",
 ]
 REPORT_FILES = ".agent/kf/_reports/"
+
+# Maximum rebase conflict resolution rounds (safety bound)
+MAX_REBASE_ROUNDS = 50
 
 lock_acquired = False
 heartbeat_stop = threading.Event()
@@ -117,6 +121,66 @@ def heartbeat_loop():
     lock_script = os.path.join(KF_BIN, "kf-merge-lock.py")
     while not heartbeat_stop.wait(30):
         run_quiet([lock_script, "heartbeat"])
+
+
+def _is_state_file(filepath: str) -> bool:
+    """Check if a file is a track state file (auto-resolvable during rebase).
+
+    Matches:
+      - Per-track meta.yaml files: .agent/kf/tracks/*/meta.yaml
+      - Legacy centralized files: tracks.yaml, deps.yaml, conflicts.yaml
+    """
+    # Per-track meta files (new format)
+    if (filepath.endswith("/meta.yaml")
+            and filepath.startswith(".agent/kf/tracks/")):
+        return True
+    # Spec snapshot (event-sourced, accept primary on conflict)
+    if filepath == ".agent/kf/spec.yaml":
+        return True
+    # Legacy centralized files
+    if filepath in LEGACY_STATE_FILES:
+        return True
+    return False
+
+
+def _get_conflicting_files() -> list[str]:
+    """Return list of files with unresolved merge conflicts."""
+    result = run_quiet(["git", "diff", "--name-only", "--diff-filter=U"])
+    if not result.stdout:
+        return []
+    return [f for f in result.stdout.strip().splitlines() if f.strip()]
+
+
+def _resolve_state_conflicts(conflict_strategy: str, state_files: list[str]):
+    """Resolve state file conflicts by accepting primary branch version.
+
+    During rebase, git reverses --ours/--theirs semantics:
+      --ours   = branch being rebased ONTO (primary — latest state)
+      --theirs = commit being REPLAYED (worker's old commit — stale)
+    To accept primary branch's version of state files, use --ours.
+    """
+    for f in state_files:
+        r = run_quiet(["git", "checkout", "--ours", f])
+        if r.returncode == 0:
+            run_quiet(["git", "add", f])
+
+
+def _resolve_report_conflicts():
+    """For 'ours' strategy, keep worker's report files."""
+    r = run_quiet(["git", "checkout", "--theirs", REPORT_FILES])
+    if r.returncode == 0:
+        run_quiet(["git", "add", REPORT_FILES])
+
+
+def _stage_state_files():
+    """Stage all track state files (per-track meta + spec + legacy)."""
+    # Stage per-track meta.yaml files
+    run_quiet(["git", "add", ".agent/kf/tracks/*/meta.yaml"])
+    # Stage spec snapshot
+    run_quiet(["git", "add", ".agent/kf/spec.yaml"])
+    # Stage legacy files if they exist
+    for f in LEGACY_STATE_FILES:
+        run_quiet(["git", "add", f])
 
 
 # ── Argument parsing ─────────────────────────────────────────────────────────
@@ -213,61 +277,108 @@ def main():
     heartbeat_thread = threading.Thread(target=heartbeat_loop, daemon=True)
     heartbeat_thread.start()
 
-    # ── Step 5: Rebase onto primary branch ───────────────────────────────────
+    # ── Step 4b: Check for uncommitted spec drafts ────────────────────────
+    spec_dir = os.path.join(os.getcwd(), ".agent", "kf", "spec")
+    if os.path.isdir(spec_dir):
+        drafts = [f for f in os.listdir(spec_dir) if f.startswith("_draft-")]
+        if drafts:
+            print("WARNING: Uncommitted spec drafts found:", file=sys.stderr)
+            for d in drafts:
+                print(f"  {d}", file=sys.stderr)
+            print("Finalize with `kf-track spec op finalize` or discard.",
+                  file=sys.stderr)
+            die("Cannot merge with uncommitted spec drafts. "
+                "Finalize or discard them first.")
+
+    # ── Step 5: Rebase onto primary branch (with conflict resolution loop) ───
+    #
+    # If the worker branch has multiple commits that each conflict on state
+    # files, the rebase needs multiple rounds of resolution. Each round
+    # resolves state file conflicts and continues until the rebase completes
+    # or a non-state-file conflict is encountered.
+    #
     print(f"Rebasing onto {primary_branch}...")
-    rebase_result = run_quiet(["git", "rebase", primary_branch])
 
-    if rebase_result.returncode != 0:
-        print("Rebase conflict detected — resolving track state files...")
+    had_conflicts = False
+    env_no_editor = os.environ.copy()
+    env_no_editor["GIT_EDITOR"] = "true"  # prevent interactive editor
 
-        # During rebase, git reverses --ours/--theirs semantics:
-        #   --ours  = branch being rebased ONTO (primary branch — latest state)
-        #   --theirs = commit being REPLAYED (worker's old commit — stale)
-        # To accept primary branch's version of state files, use --ours.
+    for rebase_round in range(MAX_REBASE_ROUNDS):
+        if rebase_round == 0:
+            rebase_result = run_quiet(["git", "rebase", primary_branch])
+        else:
+            rebase_result = run_quiet(
+                ["git", "rebase", "--continue"], env=env_no_editor)
 
-        if args.conflict_strategy == "theirs":
-            # "theirs" strategy = accept primary branch version = git --ours during rebase
-            for f in STATE_FILES:
-                r = run_quiet(["git", "checkout", "--ours", f])
-                if r.returncode == 0:
-                    run_quiet(["git", "add", f])
+        if rebase_result.returncode == 0:
+            break  # rebase completed
 
-        elif args.conflict_strategy == "ours":
-            # "ours" strategy = keep worker's report files, but still accept primary for state
-            r = run_quiet(["git", "checkout", "--theirs", REPORT_FILES])
-            if r.returncode == 0:
-                run_quiet(["git", "add", REPORT_FILES])
-            for f in STATE_FILES:
-                r = run_quiet(["git", "checkout", "--ours", f])
-                if r.returncode == 0:
-                    run_quiet(["git", "add", f])
+        had_conflicts = True
+        conflicting = _get_conflicting_files()
 
-        continue_result = run_quiet(["git", "rebase", "--continue"])
-        if continue_result.returncode != 0:
-            # Non-state file conflicts remain. DO NOT release lock.
-            # The agent must resolve these conflicts, then re-run kf-merge.
-            # Lock stays held so no other worker can merge in between.
-            print("ERROR: Rebase has unresolved non-state file conflicts.", file=sys.stderr)
+        if not conflicting:
+            # No conflicts listed but rebase failed — unexpected
+            die("Rebase failed with no identifiable conflicts. "
+                "Inspect with `git status` and resolve manually.")
+
+        state_conflicts = [f for f in conflicting if _is_state_file(f)]
+        non_state_conflicts = [f for f in conflicting if not _is_state_file(f)]
+
+        # Handle report files for "ours" strategy
+        if args.conflict_strategy == "ours" and non_state_conflicts:
+            report_conflicts = [f for f in non_state_conflicts
+                                if f.startswith(REPORT_FILES)]
+            if report_conflicts:
+                _resolve_report_conflicts()
+                non_state_conflicts = [f for f in non_state_conflicts
+                                       if not f.startswith(REPORT_FILES)]
+
+        if non_state_conflicts:
+            # Resolve state files first so the agent only has source conflicts
+            if state_conflicts:
+                print(f"Rebase conflict (round {rebase_round + 1}) — "
+                      f"auto-resolving {len(state_conflicts)} state file(s)...")
+                _resolve_state_conflicts(args.conflict_strategy, state_conflicts)
+
+            # Non-state file conflicts remain — bail for agent resolution
+            print("ERROR: Rebase has unresolved non-state file conflicts.",
+                  file=sys.stderr)
             print("", file=sys.stderr)
-            print("The merge lock is STILL HELD. Resolve the conflicts, then:", file=sys.stderr)
+            print("Conflicting files:", file=sys.stderr)
+            for f in non_state_conflicts:
+                print(f"  {f}", file=sys.stderr)
+            print("", file=sys.stderr)
+            print("The merge lock is STILL HELD. Resolve the conflicts, then:",
+                  file=sys.stderr)
             print("  1. git add <resolved files>", file=sys.stderr)
             print("  2. git rebase --continue", file=sys.stderr)
-            print("  3. Re-run kf-merge (it will skip lock acquire since you hold it)", file=sys.stderr)
+            print("  3. Re-run kf-merge (it will skip lock acquire since you "
+                  "hold it)", file=sys.stderr)
             print("", file=sys.stderr)
-            print("Or abort: git rebase --abort && kf-merge-lock release", file=sys.stderr)
+            print("Or abort: git rebase --abort && kf-merge-lock release",
+                  file=sys.stderr)
             # Prevent atexit from releasing the lock
             lock_acquired = False
             sys.exit(3)
 
-        # Re-apply track state changes after accepting theirs (developer flow)
-        if args.reapply_cmd:
-            print("Re-applying track state changes...")
-            r = run(args.reapply_cmd, shell=True, check=False)
-            if r.returncode != 0:
-                die(f"Reapply command failed: {args.reapply_cmd}")
-            for f in STATE_FILES:
-                run_quiet(["git", "add", f])
-            run_quiet(["git", "commit", "--amend", "--no-edit"])
+        # All conflicts are state files — auto-resolve
+        print(f"Rebase conflict (round {rebase_round + 1}) — "
+              f"auto-resolving {len(state_conflicts)} state file(s)...")
+        _resolve_state_conflicts(args.conflict_strategy, state_conflicts)
+
+    else:
+        die(f"Rebase loop exceeded {MAX_REBASE_ROUNDS} rounds — aborting. "
+            f"Run `git rebase --abort && kf-merge-lock release` to recover.")
+
+    # Re-apply track state changes after conflict resolution (developer flow)
+    if had_conflicts and args.reapply_cmd:
+        print("Re-applying track state changes...")
+        r = run(args.reapply_cmd, shell=True, check=False)
+        if r.returncode != 0:
+            die(f"Reapply command failed: {args.reapply_cmd}")
+        _stage_state_files()
+        run_quiet(["git", "commit", "--amend", "--no-edit"],
+                  env=env_no_editor)
 
     print("Rebase complete.")
 
@@ -277,8 +388,7 @@ def main():
         r = run(args.registry_cmd, shell=True, check=False)
         if r.returncode != 0:
             die(f"Registry command failed: {args.registry_cmd}")
-        for f in STATE_FILES:
-            run_quiet(["git", "add", f])
+        _stage_state_files()
         run_quiet(["git", "commit", "-m", "chore(kf): update track registry"])
         print("Registry updated.")
 

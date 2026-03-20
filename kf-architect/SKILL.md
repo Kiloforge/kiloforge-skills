@@ -98,9 +98,9 @@ Read all of these (from the working tree, which is now at the latest primary bra
 1. **Product context:** `.agent/kf/product.yaml`
 2. **Product guidelines:** `.agent/kf/product-guidelines.yaml` (if exists)
 3. **Tech stack:** `.agent/kf/tech-stack.yaml`
-4. **Project index:** Run `.agent/kf/bin/kf-track.py index` (generated summary of all tracks)
-5. **Quick links:** Run `.agent/kf/bin/kf-track.py quick-links show` (navigation links)
-6. **Track states:** `.agent/kf/tracks.yaml` (YAML registry — use `.agent/kf/bin/kf-track.py list` to query)
+4. **Project index:** Run `.agent/kf/bin/kf-track.py index --ref ${PRIMARY_BRANCH}` (generated summary of all tracks)
+5. **Quick links:** Run `.agent/kf/bin/kf-track.py quick-links show --ref ${PRIMARY_BRANCH}` (navigation links)
+6. **Track states:** Run `.agent/kf/bin/kf-track.py list --ref ${PRIMARY_BRANCH}` to query track registry
 7. **Dependency graph:** `.agent/kf/tracks/deps.yaml` (adjacency list of track dependencies)
 8. **Code style guides:** `.agent/kf/code_styleguides/` (all files, if present)
 

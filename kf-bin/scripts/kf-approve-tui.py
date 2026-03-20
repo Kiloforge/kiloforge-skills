@@ -36,7 +36,8 @@ import time
 import threading
 from pathlib import Path
 
-import yaml
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from lib.tracks import TracksRegistry
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
 from lib import merge_lock
@@ -86,27 +87,18 @@ def git_common_dir():
 # ---------------------------------------------------------------------------
 
 def load_tracks(ref):
-    output = run(f"git show {ref}:.agent/kf/tracks.yaml 2>/dev/null")
-    if not output:
-        return {}
-    try:
-        data = yaml.safe_load(output)
-        return data if isinstance(data, dict) else {}
-    except yaml.YAMLError:
-        return {}
+    reg = TracksRegistry.from_ref(ref)
+    # Return {track_id: {title, status, type, ...}} — strip deps/conflicts for display
+    result = {}
+    for tid, data in reg.all_entries().items():
+        result[tid] = {k: v for k, v in data.items()
+                       if k not in ("deps", "conflicts")}
+    return result
 
 
 def load_deps(ref):
-    output = run(f"git show {ref}:.agent/kf/tracks/deps.yaml 2>/dev/null")
-    if not output:
-        return {}
-    try:
-        data = yaml.safe_load(output)
-        if not isinstance(data, dict):
-            return {}
-        return {k: (v if isinstance(v, list) else []) for k, v in data.items()}
-    except yaml.YAMLError:
-        return {}
+    reg = TracksRegistry.from_ref(ref)
+    return reg.all_deps()
 
 
 def load_track_detail(ref, track_id):
@@ -439,8 +431,11 @@ class TrackState:
                     capture_output=True, text=True,
                 )
 
-            subprocess.run(["git", "add", ".agent/kf/tracks.yaml"],
-                           capture_output=True, text=True)
+            # Stage all changed track meta.yaml files
+            for tid in self.changes:
+                subprocess.run(
+                    ["git", "add", f".agent/kf/tracks/{tid}/meta.yaml"],
+                    capture_output=True, text=True)
             ids = ", ".join(sorted(self.changes.keys()))
             subprocess.run(
                 ["git", "commit", "-m",

@@ -92,7 +92,7 @@ ERROR: Track ID required.
 
 Usage: /kf-developer <track-id>
 
-To see available tracks, run `.agent/kf/bin/kf-track.py list` or /kf-architect to create new ones.
+To see available tracks, run `.agent/kf/bin/kf-track.py list --ref ${PRIMARY_BRANCH}` or /kf-architect to create new ones.
 ```
 
 **HALT.**

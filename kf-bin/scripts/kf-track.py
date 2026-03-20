@@ -1,17 +1,25 @@
 #!/usr/bin/env python3
 """kf-track -- Track registry management tool for Kiloforge agents.
 
-Operates on tracks.yaml (track registry) and deps.yaml (dependency graph).
+Operates on per-track meta.yaml files in .agent/kf/tracks/{trackId}/meta.yaml.
 Designed for use by both humans and AI agents.
 
-TRACKS.YAML FORMAT:
-  Each line: <track-id>: {"title":"...","status":"...","type":"...","created":"...","updated":"..."}
-  Track ID is always the leftmost field for human readability.
-  Status values: pending, in-progress, completed, archived
+META.YAML FORMAT:
+  Each track stores metadata in its own directory:
+    title: "Feature title"
+    status: pending
+    type: feature
+    approved: false
+    created: "2026-03-21"
+    updated: "2026-03-21"
+    deps:
+      - prerequisite_track_id
+    conflicts:
+      - peer: other_track_id
+        risk: high
+        note: "reason"
 
-DEPS.YAML FORMAT:
-  Each track ID maps to a list of prerequisite track IDs.
-  See deps.yaml header for full protocol.
+STATUS VALUES: pending | in-progress | completed | archived
 """
 
 import json
@@ -23,6 +31,9 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
+
+from lib.tracks import TracksRegistry
 
 # --- Config ---
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -42,17 +53,21 @@ _CONFIG_SCHEMA = [
     ("enforce_dep_ordering", "bool", "true"),
 ]
 
-# Global overrides for --ref support
-_tracks_file = None
-_deps_file = None
+# Global registry instance
+_registry: Optional[TracksRegistry] = None
 
 
-def _get_tracks_file():
-    return _tracks_file or TRACKS_FILE
+def _get_registry() -> TracksRegistry:
+    global _registry
+    if _registry is None:
+        _registry = TracksRegistry(TRACKS_DIR)
+    return _registry
 
 
-def _get_deps_file():
-    return _deps_file or DEPS_FILE
+def _reset_registry():
+    """Force re-scan on next access."""
+    global _registry
+    _registry = None
 
 
 # --- Helpers ---
@@ -101,7 +116,14 @@ def normalize_json(raw_json):
     return json.dumps(result, separators=(",", ":"))
 
 
-# --- File reading helpers ---
+def _conflict_pair_key(a, b):
+    """Build the canonical pair key (lower/higher alphabetical order)."""
+    if a < b:
+        return f"{a}/{b}"
+    return f"{b}/{a}"
+
+
+# --- File reading helpers (used by non-track operations) ---
 def read_file_lines(filepath):
     """Read a file and return list of lines (without newlines). Returns [] if missing."""
     fp = Path(filepath)
@@ -238,59 +260,18 @@ def is_track_claimed(track_id):
 
 # --- Track file operations ---
 def ensure_tracks_file():
-    fp = _get_tracks_file()
-    if not Path(fp).exists():
-        write_file(fp, (
-            "# Kiloforge Track Registry\n"
-            "#\n"
-            "# FORMAT: <track-id>: {\"title\":\"...\",\"status\":\"...\",\"type\":\"...\",\"created\":\"...\",\"updated\":\"...\"}\n"
-            "# STATUS: pending | in-progress | completed | archived\n"
-            "# ORDER:  Lines sorted alphabetically by track ID. JSON fields in canonical order:\n"
-            "#         title, status, type, created, updated [, archived_at, archive_reason]\n"
-            "# TOOL:   Use `kf-track` to manage entries. Do not edit by hand.\n"
-            "#\n"
-        ))
+    """No-op: meta.yaml created on add."""
+    pass
 
 
 def ensure_deps_file():
-    fp = _get_deps_file()
-    if not Path(fp).exists():
-        Path(fp).parent.mkdir(parents=True, exist_ok=True)
-        write_file(fp, (
-            "# Track Dependency Graph\n"
-            "#\n"
-            "# PROTOCOL:\n"
-            "#   Canonical source for track dependency ordering (adjacency list).\n"
-            "#   Each key is a track ID; its value is a list of prerequisite track IDs.\n"
-            "#\n"
-            "# RULES:\n"
-            "#   - Only pending/in-progress tracks listed. Completed tracks pruned on cleanup.\n"
-            "#   - Architect appends entries when creating tracks.\n"
-            "#   - Developer checks deps before claiming: all deps must be completed.\n"
-            "#   - Cycles are forbidden.\n"
-            "#\n"
-            f"# UPDATED: {now_iso()}\n"
-        ))
+    """No-op: deps stored in meta.yaml."""
+    pass
 
 
 def ensure_conflicts_file():
-    if not CONFLICTS_FILE.exists():
-        CONFLICTS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        write_file(CONFLICTS_FILE, (
-            "# Track Conflict Risk Pairs\n"
-            "#\n"
-            "# PROTOCOL:\n"
-            "#   Each line: <id-a>/<id-b>: {\"risk\":\"high|medium|low\",\"note\":\"...\",\"added\":\"...\"}\n"
-            "#   Pair key is strictly ordered: lower ID / higher ID (only one record per pair).\n"
-            "#\n"
-            "# RULES:\n"
-            "#   - Architect adds pairs when generating tracks that may conflict.\n"
-            "#   - Pairs auto-cleaned when either track completes or is archived.\n"
-            "#   - Only active (pending/in-progress) tracks should have pairs.\n"
-            "#\n"
-            "# TOOL: Use `kf-track conflicts` to manage entries. Do not edit by hand.\n"
-            "#\n"
-        ))
+    """No-op: conflicts stored in meta.yaml."""
+    pass
 
 
 def ensure_compactions_file():
@@ -326,244 +307,72 @@ def ensure_quick_links_file():
 
 
 def track_exists(track_id):
-    fp = _get_tracks_file()
-    for line in read_file_lines(fp):
-        if line.startswith(f"{track_id}:"):
-            return True
-    return False
-
-
-def get_track_line(track_id):
-    fp = _get_tracks_file()
-    for line in read_file_lines(fp):
-        if line.startswith(f"{track_id}:"):
-            return line
-    return None
-
-
-def get_track_json(track_id):
-    line = get_track_line(track_id)
-    if line is None:
-        return None
-    idx = line.index("{")
-    return line[idx:]
+    return _get_registry().exists(track_id)
 
 
 def get_field(track_id, field):
-    raw = get_track_json(track_id)
-    if raw is None:
-        return None
-    try:
-        data = json.loads(raw)
-        return data.get(field, "")
-    except json.JSONDecodeError:
-        # fallback regex
-        m = re.search(rf'"{field}":"([^"]*)"', raw)
-        return m.group(1) if m else ""
+    val = _get_registry().get_field(track_id, field)
+    if val is None:
+        return ""
+    return val
 
 
 def set_field(track_id, field, value):
-    raw = get_track_json(track_id)
-    if raw is None:
+    reg = _get_registry()
+    if not reg.exists(track_id):
         print(f"ERROR: Track not found: {track_id}", file=sys.stderr)
         return False
-
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError:
-        print(f"ERROR: Invalid JSON for track {track_id}", file=sys.stderr)
-        return False
-
-    data[field] = value
-    if field != "updated":
-        data["updated"] = today_iso()
-
-    new_json = normalize_json(json.dumps(data))
-
-    fp = _get_tracks_file()
-    lines = read_file_lines(fp)
-    new_lines = []
-    for line in lines:
-        if line.startswith(f"{track_id}:"):
-            new_lines.append(f"{track_id}: {new_json}")
-        else:
-            new_lines.append(line)
-    write_file(fp, "\n".join(new_lines) + "\n")
+    reg.set_field(track_id, field, value)
+    reg.save(track_ids=[track_id])
     return True
-
-
-def sort_tracks_file():
-    fp = _get_tracks_file()
-    if not Path(fp).exists():
-        return
-    lines = read_file_lines(fp)
-    header_lines = []
-    data_lines = []
-    for line in lines:
-        if line.startswith("#"):
-            header_lines.append(line)
-        elif line.strip():
-            data_lines.append(line)
-    data_lines.sort()
-    content = "\n".join(header_lines)
-    if data_lines:
-        content += "\n\n" + "\n".join(data_lines)
-    write_file(fp, content + "\n")
-
-
-def sort_deps_file():
-    fp = _get_deps_file()
-    if not Path(fp).exists():
-        return
-    text = read_file_text(fp)
-    lines = text.split("\n")
-
-    header = []
-    rest = []
-    in_header = True
-    for l in lines:
-        if in_header and (l.startswith("#") or l.strip() == ""):
-            header.append(l)
-        else:
-            in_header = False
-            rest.append(l)
-
-    # Parse entries
-    entries = {}
-    current_id = None
-    for l in rest:
-        if l and not l.startswith(" ") and not l.startswith("#"):
-            current_id = l.split(":")[0]
-            entries[current_id] = []
-        elif l.startswith("  - ") and current_id:
-            entries[current_id].append(l[4:])
-
-    # Write sorted
-    out = "\n".join(header).rstrip() + "\n\n"
-    for tid in sorted(entries.keys()):
-        deps = sorted(entries[tid])
-        if not deps:
-            out += f"{tid}: []\n"
-        else:
-            out += f"{tid}:\n"
-            for d in deps:
-                out += f"  - {d}\n"
-        out += "\n"
-    write_file(fp, out.rstrip() + "\n")
-
-
-def sort_conflicts_file():
-    if not CONFLICTS_FILE.exists():
-        return
-    lines = read_file_lines(CONFLICTS_FILE)
-    header_lines = [l for l in lines if l.startswith("#")]
-    data_lines = sorted([l for l in lines if l.strip() and not l.startswith("#")])
-    content = "\n".join(header_lines)
-    if data_lines:
-        content += "\n\n" + "\n".join(data_lines)
-    write_file(CONFLICTS_FILE, content + "\n")
 
 
 def get_track_deps(track_id):
     """Returns list of dependency track IDs for a given track."""
-    fp = _get_deps_file()
-    if not Path(fp).exists():
-        return []
-    lines = read_file_lines(fp)
-    deps = []
-    found = False
-    for line in lines:
-        if line.startswith(f"{track_id}:"):
-            found = True
-            # Check for inline empty: "id: []"
-            if "[]" in line:
-                return []
-            continue
-        if found:
-            if line.startswith("  - "):
-                deps.append(line[4:])
-            elif line and not line.startswith(" ") and not line.startswith("#"):
-                break
-    return deps
+    return _get_registry().get_deps(track_id)
 
 
 def deps_satisfied(track_id):
     """Returns True if all deps for track are completed (or no deps)."""
-    deps = get_track_deps(track_id)
-    if not deps:
-        return True
-    for dep in deps:
-        dep_status = get_field(dep, "status") or "unknown"
-        if dep_status != "completed":
-            return False
-    return True
+    return _get_registry().deps_satisfied(track_id)
 
 
 def dep_summary(track_id):
     """Returns a short string summarizing deps: '0/0', '2/3', etc."""
-    deps = get_track_deps(track_id)
-    if not deps:
-        return "-"
-    total = len(deps)
-    satisfied = sum(1 for d in deps if (get_field(d, "status") or "unknown") == "completed")
-    if satisfied == total:
-        return f"{satisfied}/{total} \u2713"
-    return f"{satisfied}/{total}"
+    return _get_registry().dep_summary(track_id)
 
 
 def conflicts_clean_track(track_id):
-    """Remove all conflict pairs involving a specific track ID."""
-    if not CONFLICTS_FILE.exists():
-        return
-    lines = read_file_lines(CONFLICTS_FILE)
-    new_lines = []
-    for line in lines:
-        if line.strip() and not line.startswith("#"):
-            pair_key = line.split(":")[0]
-            parts = pair_key.split("/")
-            if len(parts) == 2 and (parts[0] == track_id or parts[1] == track_id):
-                continue
-        new_lines.append(line)
-    write_file(CONFLICTS_FILE, "\n".join(new_lines) + "\n")
+    """Remove all conflict entries involving a specific track ID."""
+    reg = _get_registry()
+    reg.clean_conflicts(track_id)
+    reg.save(track_ids=[track_id])
 
 
-def conflict_pair_key(a, b):
-    """Build the canonical pair key (lower/higher alphabetical order)."""
-    if a < b:
-        return f"{a}/{b}"
-    return f"{b}/{a}"
+def sort_tracks_file():
+    """No-op: not needed with per-track files."""
+    pass
+
+
+def sort_deps_file():
+    """No-op: not needed with per-track files."""
+    pass
+
+
+def sort_conflicts_file():
+    """No-op: not needed with per-track files."""
+    pass
 
 
 # --- Ref support helpers ---
 def setup_ref(ref, need_deps=True):
-    """Set up temp files from a git ref. Returns cleanup function."""
-    global _tracks_file, _deps_file
-    tracks_content = run_git("show", f"{ref}:.agent/kf/tracks.yaml")
-    if not tracks_content:
-        print(f"ERROR: Cannot read tracks.yaml from ref '{ref}'", file=sys.stderr)
-        sys.exit(1)
-
-    tmp_tracks = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
-    tmp_tracks.write(tracks_content)
-    tmp_tracks.close()
-    _tracks_file = Path(tmp_tracks.name)
-
-    tmp_deps_path = None
-    if need_deps:
-        deps_content = run_git("show", f"{ref}:.agent/kf/tracks/deps.yaml")
-        tmp_deps = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
-        tmp_deps.write(deps_content)
-        tmp_deps.close()
-        _deps_file = Path(tmp_deps.name)
-        tmp_deps_path = tmp_deps.name
+    """Load registry from a git ref. Returns cleanup function."""
+    global _registry
+    _registry = TracksRegistry.from_ref(ref)
 
     def cleanup():
-        global _tracks_file, _deps_file
-        os.unlink(tmp_tracks.name)
-        if tmp_deps_path:
-            os.unlink(tmp_deps_path)
-        _tracks_file = None
-        _deps_file = None
+        global _registry
+        _registry = None
 
     return cleanup
 
@@ -598,35 +407,15 @@ def cmd_add(args):
         print("ERROR: --title is required", file=sys.stderr)
         return 1
 
-    ensure_tracks_file()
+    reg = _get_registry()
 
-    if track_exists(track_id):
+    if reg.exists(track_id):
         print(f"ERROR: Track already exists: {track_id}", file=sys.stderr)
         return 1
 
-    created = today_iso()
-    data = {"title": title, "status": status, "type": track_type, "approved": False, "created": created, "updated": created}
-    track_json = normalize_json(json.dumps(data))
-
-    # Append to tracks file
-    fp = _get_tracks_file()
-    with open(fp, "a") as f:
-        f.write(f"{track_id}: {track_json}\n")
-    sort_tracks_file()
-
-    # Add to deps.yaml
-    ensure_deps_file()
-    dp = _get_deps_file()
-    with open(dp, "a") as f:
-        if deps_str:
-            f.write(f"\n{track_id}:\n")
-            for dep in deps_str.split(","):
-                dep = dep.strip()
-                if dep:
-                    f.write(f"  - {dep}\n")
-        else:
-            f.write(f"\n{track_id}: []\n")
-    sort_deps_file()
+    deps_list = [d.strip() for d in deps_str.split(",") if d.strip()] if deps_str else []
+    reg.add(track_id, title, type_=track_type, status=status, deps=deps_list, approved=False)
+    reg.save(track_ids=[track_id])
 
     print(f"Added: {track_id}")
     return 0
@@ -649,9 +438,9 @@ def cmd_update(args):
         print("Usage: kf-track update <track-id> --status <pending|in-progress|completed|archived>", file=sys.stderr)
         return 1
 
-    ensure_tracks_file()
+    reg = _get_registry()
 
-    if not track_exists(track_id):
+    if not reg.exists(track_id):
         print(f"ERROR: Track not found: {track_id}", file=sys.stderr)
         return 1
 
@@ -660,37 +449,13 @@ def cmd_update(args):
         print(f"ERROR: Invalid status: {status} (must be pending|in-progress|completed|archived)", file=sys.stderr)
         return 1
 
-    set_field(track_id, "status", status)
-
-    if status == "archived":
-        set_field(track_id, "archived_at", today_iso())
+    reg.update_status(track_id, status)
 
     if status in ("completed", "archived"):
-        # Remove from deps.yaml
-        dp = _get_deps_file()
-        if Path(dp).exists():
-            lines = read_file_lines(dp)
-            new_lines = []
-            skip = False
-            for line in lines:
-                if line.startswith(f"{track_id}:"):
-                    skip = True
-                    continue
-                if skip:
-                    if line.startswith("  "):
-                        continue
-                    else:
-                        skip = False
-                new_lines.append(line)
-            # Clean up multiple blank lines
-            cleaned = []
-            for line in new_lines:
-                if line.strip() == "" and cleaned and cleaned[-1].strip() == "":
-                    continue
-                cleaned.append(line)
-            write_file(dp, "\n".join(cleaned) + "\n")
+        reg.clean_conflicts(track_id)
 
-        conflicts_clean_track(track_id)
+    affected = [track_id]
+    reg.save(track_ids=affected)
 
     print(f"Updated: {track_id} \u2192 {status}")
     return 0
@@ -721,13 +486,14 @@ def cmd_set(args):
         print("Usage: kf-track set <track-id> --<field> <value>", file=sys.stderr)
         return 1
 
-    ensure_tracks_file()
+    reg = _get_registry()
 
-    if not track_exists(track_id):
+    if not reg.exists(track_id):
         print(f"ERROR: Track not found: {track_id}", file=sys.stderr)
         return 1
 
-    set_field(track_id, field, value)
+    reg.set_field(track_id, field, value)
+    reg.save(track_ids=[track_id])
     print(f"Set {track_id}.{field} = {value}")
     return 0
 
@@ -754,26 +520,23 @@ def cmd_get(args):
         cleanup = setup_ref(ref)
 
     try:
-        line = get_track_line(track_id)
-        if line is None:
+        reg = _get_registry()
+        data = reg.get(track_id)
+        if data is None:
             print(f"ERROR: Track not found: {track_id}", file=sys.stderr)
             return 1
 
-        raw_json = line[line.index("{"):]
         print(f"Track: {track_id}")
-        try:
-            data = json.loads(raw_json)
-            print(json.dumps(data, indent=2))
-        except json.JSONDecodeError:
-            print(raw_json)
+        display = {k: v for k, v in data.items() if k not in ("deps", "conflicts")}
+        print(json.dumps(display, indent=2))
 
         # Show deps
-        deps = get_track_deps(track_id)
+        deps = reg.get_deps(track_id)
         if deps:
             print()
             print("Dependencies:")
             for dep in deps:
-                dep_status = get_field(dep, "status") or "unknown"
+                dep_status = reg.get_field(dep, "status") or "unknown"
                 if dep_status == "completed":
                     marker = "[x]"
                 elif dep_status == "in-progress":
@@ -825,7 +588,7 @@ def cmd_list(args):
         cleanup = setup_ref(ref)
 
     try:
-        ensure_tracks_file()
+        reg = _get_registry()
 
         # Default: --ready
         if not filter_status and not filter_active and not filter_ready and not show_all:
@@ -833,24 +596,23 @@ def cmd_list(args):
         if filter_ready:
             filter_active = True
 
-        fp = _get_tracks_file()
-        all_lines = [l for l in read_file_lines(fp) if l.strip() and not l.startswith("#")]
+        all_entries = reg.all_entries()
 
         # Filter by status
         if filter_status:
-            lines = [l for l in all_lines if f'"status":"{filter_status}"' in l]
+            entries = {tid: d for tid, d in all_entries.items() if d.get("status") == filter_status}
         elif filter_active:
-            lines = [l for l in all_lines if '"status":"completed"' not in l and '"status":"archived"' not in l]
+            entries = {tid: d for tid, d in all_entries.items() if d.get("status") not in ("completed", "archived")}
         else:
-            lines = all_lines
+            entries = all_entries
 
         # Apply --ready filter
-        if filter_ready and lines:
-            lines = [l for l in lines if deps_satisfied(l.split(":")[0])]
+        if filter_ready and entries:
+            entries = {tid: d for tid, d in entries.items() if reg.deps_satisfied(tid)}
 
         # Build claimed cache
         claimed_cache = []
-        if lines:
+        if entries:
             try:
                 claimed_cache = get_claimed_tracks()
             except Exception:
@@ -859,10 +621,10 @@ def cmd_list(args):
         claimed_ids = {tid for tid, _ in claimed_cache}
 
         # Apply --unclaimed filter
-        if filter_unclaimed and lines and claimed_cache:
-            lines = [l for l in lines if l.split(":")[0] not in claimed_ids]
+        if filter_unclaimed and entries and claimed_cache:
+            entries = {tid: d for tid, d in entries.items() if tid not in claimed_ids}
 
-        if not lines:
+        if not entries:
             if filter_unclaimed:
                 print("(no unclaimed tracks \u2014 all active tracks are claimed by workers)")
             elif filter_ready:
@@ -874,33 +636,29 @@ def cmd_list(args):
         # Sort: no-deps tracks first, then tracks with deps
         no_deps = []
         has_deps = []
-        for line in lines:
-            tid = line.split(":")[0]
-            if get_track_deps(tid):
-                has_deps.append(line)
+        for tid in sorted(entries.keys()):
+            if reg.get_deps(tid):
+                has_deps.append(tid)
             else:
-                no_deps.append(line)
-        lines = no_deps + has_deps
+                no_deps.append(tid)
+        sorted_ids = no_deps + has_deps
 
-        count = len(lines)
+        count = len(sorted_ids)
 
         if fmt == "ids":
-            for line in lines:
-                print(line.split(":")[0])
+            for tid in sorted_ids:
+                print(tid)
         elif fmt == "json":
-            for line in lines:
-                tid = line.split(":")[0]
-                raw = line[line.index("{"):]
-                deps_info = dep_summary(tid)
-                try:
-                    data = json.loads(raw)
-                    dep_list = get_track_deps(tid)
-                    data["id"] = tid
-                    data["deps"] = dep_list
-                    data["deps_summary"] = deps_info
-                    print(json.dumps(data, separators=(",", ":")))
-                except json.JSONDecodeError:
-                    print(f'{{"id":"{tid}","deps_summary":"{deps_info}",{raw[1:]}')
+            for tid in sorted_ids:
+                data = dict(entries[tid])
+                deps_info = reg.dep_summary(tid)
+                dep_list = reg.get_deps(tid)
+                # Remove internal fields for JSON output
+                data_out = {k: v for k, v in data.items() if k not in ("deps", "conflicts")}
+                data_out["id"] = tid
+                data_out["deps"] = dep_list
+                data_out["deps_summary"] = deps_info
+                print(json.dumps(data_out, separators=(",", ":")))
         else:
             # Table format
             print(f"{'TRACK ID':<50} {'STATUS':<13} {'TYPE':<10} {'DEPS':<10} TITLE")
@@ -908,27 +666,17 @@ def cmd_list(args):
 
             claimed_map = {tid: worker for tid, worker in claimed_cache}
 
-            for line in lines:
-                tid = line.split(":")[0]
-                raw = line[line.index("{"):]
-                try:
-                    data = json.loads(raw)
-                    title = data.get("title", "")
-                    status = data.get("status", "")
-                    track_type = data.get("type", "")
-                except json.JSONDecodeError:
-                    m_title = re.search(r'"title":"([^"]*)"', raw)
-                    m_status = re.search(r'"status":"([^"]*)"', raw)
-                    m_type = re.search(r'"type":"([^"]*)"', raw)
-                    title = m_title.group(1) if m_title else ""
-                    status = m_status.group(1) if m_status else ""
-                    track_type = m_type.group(1) if m_type else ""
+            for tid in sorted_ids:
+                data = entries[tid]
+                title = data.get("title", "")
+                status = data.get("status", "")
+                track_type = data.get("type", "")
 
                 # Enrich status with claim detection
                 if status == "pending" and tid in claimed_ids:
                     status = "claimed"
 
-                deps_info = dep_summary(tid)
+                deps_info = reg.dep_summary(tid)
 
                 if len(title) > 50:
                     title = title[:47] + "..."
@@ -948,223 +696,224 @@ def cmd_list(args):
 
 
 def cmd_deps(args):
-    if not args:
-        print("Usage: kf-track deps <add|remove|list|check> <track-id> [dep-id]", file=sys.stderr)
-        return 1
-
-    subcmd = args[0]
-    rest = args[1:]
-
-    if subcmd == "add":
-        if len(rest) < 2:
-            print("Usage: kf-track deps add <track-id> <dependency-id>", file=sys.stderr)
-            return 1
-        track_id, dep = rest[0], rest[1]
-        ensure_deps_file()
-        dp = _get_deps_file()
-        lines = read_file_lines(dp)
-
-        found = False
-        new_lines = []
-        for line in lines:
-            new_lines.append(line)
-            if line.startswith(f"{track_id}:"):
-                found = True
-                # If inline empty list, replace it
-                if "[]" in line:
-                    new_lines[-1] = f"{track_id}:"
-                new_lines.append(f"  - {dep}")
-
-        if not found:
-            new_lines.append("")
-            new_lines.append(f"{track_id}:")
-            new_lines.append(f"  - {dep}")
-
-        write_file(dp, "\n".join(new_lines) + "\n")
-        sort_deps_file()
-        print(f"Added dependency: {track_id} \u2192 {dep}")
-
-    elif subcmd == "remove":
-        if len(rest) < 2:
-            print("Usage: kf-track deps remove <track-id> <dependency-id>", file=sys.stderr)
-            return 1
-        track_id, dep = rest[0], rest[1]
-        dp = _get_deps_file()
-        lines = read_file_lines(dp)
-        new_lines = []
-        in_section = False
-        for line in lines:
-            if line.startswith(f"{track_id}:"):
-                in_section = True
-                new_lines.append(line)
-                continue
-            if in_section:
-                if line == f"  - {dep}":
-                    continue
-                if line and not line.startswith(" ") and not line.startswith("#"):
-                    in_section = False
-            new_lines.append(line)
-        write_file(dp, "\n".join(new_lines) + "\n")
-        print(f"Removed dependency: {track_id} \u2192 {dep}")
-
-    elif subcmd == "list":
-        if len(rest) < 1:
-            print("Usage: kf-track deps list <track-id>", file=sys.stderr)
-            return 1
-        track_id = rest[0]
-        dp = _get_deps_file()
-        if not Path(dp).exists():
-            print("(no deps.yaml found)")
-            return 0
-        deps = get_track_deps(track_id)
-        if not deps:
-            print("(no dependencies)")
+    # Extract --ref from args
+    ref = None
+    cleanup = None
+    filtered_args = []
+    i = 0
+    while i < len(args):
+        if args[i] == "--ref":
+            ref = args[i + 1]; i += 2
         else:
-            for d in deps:
-                print(d)
+            filtered_args.append(args[i]); i += 1
 
-    elif subcmd == "check":
-        if len(rest) < 1:
-            print("Usage: kf-track deps check <track-id>", file=sys.stderr)
+    if ref:
+        cleanup = setup_ref(ref)
+
+    try:
+        if not filtered_args:
+            print("Usage: kf-track deps <add|remove|list|check> <track-id> [dep-id]", file=sys.stderr)
             return 1
-        track_id = rest[0]
-        dp = _get_deps_file()
-        if not Path(dp).exists():
-            print("OK (no deps.yaml)")
-            return 0
-        deps = get_track_deps(track_id)
-        if not deps:
-            print("OK (no dependencies)")
-            return 0
-        any_blocked = False
-        for dep in deps:
-            dep_status = get_field(dep, "status") or "unknown"
-            if dep_status == "completed":
-                print(f"  [x] {dep}")
+
+        subcmd = filtered_args[0]
+        rest = filtered_args[1:]
+        reg = _get_registry()
+
+        if subcmd == "add":
+            if len(rest) < 2:
+                print("Usage: kf-track deps add <track-id> <dependency-id>", file=sys.stderr)
+                return 1
+            track_id, dep = rest[0], rest[1]
+            reg.add_dep(track_id, dep)
+            reg.save(track_ids=[track_id])
+            print(f"Added dependency: {track_id} \u2192 {dep}")
+
+        elif subcmd == "remove":
+            if len(rest) < 2:
+                print("Usage: kf-track deps remove <track-id> <dependency-id>", file=sys.stderr)
+                return 1
+            track_id, dep = rest[0], rest[1]
+            reg.remove_dep(track_id, dep)
+            reg.save(track_ids=[track_id])
+            print(f"Removed dependency: {track_id} \u2192 {dep}")
+
+        elif subcmd == "list":
+            if len(rest) < 1:
+                print("Usage: kf-track deps list <track-id>", file=sys.stderr)
+                return 1
+            track_id = rest[0]
+            deps = reg.get_deps(track_id)
+            if not deps:
+                print("(no dependencies)")
             else:
-                print(f"  [ ] {dep} ({dep_status})")
-                any_blocked = True
-        if any_blocked:
-            print("BLOCKED \u2014 not all dependencies completed")
-            return 1
-        else:
-            print("OK \u2014 all dependencies satisfied")
-            return 0
-    else:
-        print("Usage: kf-track deps <add|remove|list|check> <track-id> [dep-id]", file=sys.stderr)
-        return 1
+                for d in deps:
+                    print(d)
 
-    return 0
+        elif subcmd == "check":
+            if len(rest) < 1:
+                print("Usage: kf-track deps check <track-id>", file=sys.stderr)
+                return 1
+            track_id = rest[0]
+            deps = reg.get_deps(track_id)
+            if not deps:
+                print("OK (no dependencies)")
+                return 0
+            any_blocked = False
+            for dep in deps:
+                dep_status = reg.get_field(dep, "status") or "unknown"
+                if dep_status == "completed":
+                    print(f"  [x] {dep}")
+                else:
+                    print(f"  [ ] {dep} ({dep_status})")
+                    any_blocked = True
+            if any_blocked:
+                print("BLOCKED \u2014 not all dependencies completed")
+                return 1
+            else:
+                print("OK \u2014 all dependencies satisfied")
+                return 0
+        else:
+            print("Usage: kf-track deps <add|remove|list|check> <track-id> [dep-id]", file=sys.stderr)
+            return 1
+
+        return 0
+    finally:
+        if cleanup:
+            cleanup()
 
 
 def cmd_conflicts(args):
-    if not args:
-        print("Usage: kf-track conflicts <add|remove|list|clean> [args]", file=sys.stderr)
-        print("  add <track-a> <track-b> [risk] [note]  Add/update conflict pair", file=sys.stderr)
-        print("  remove <track-a> <track-b>              Remove conflict pair", file=sys.stderr)
-        print("  list [track-id]                         List pairs (optionally filtered)", file=sys.stderr)
-        print("  clean                                   Remove pairs for completed tracks", file=sys.stderr)
-        return 1
-
-    subcmd = args[0]
-    rest = args[1:]
-
-    if subcmd == "add":
-        if len(rest) < 2:
-            print("Usage: kf-track conflicts add <track-a> <track-b> [risk] [note]", file=sys.stderr)
-            print("  risk: high, medium, low (default: medium)", file=sys.stderr)
-            return 1
-        id_a, id_b = rest[0], rest[1]
-        risk = rest[2] if len(rest) > 2 else "medium"
-        note = rest[3] if len(rest) > 3 else ""
-
-        if id_a == id_b:
-            print("ERROR: Cannot create conflict pair with itself", file=sys.stderr)
-            return 1
-
-        ensure_conflicts_file()
-        pair_key = conflict_pair_key(id_a, id_b)
-
-        # Remove existing record
-        lines = read_file_lines(CONFLICTS_FILE)
-        lines = [l for l in lines if not l.startswith(f"{pair_key}:")]
-
-        cjson = json.dumps({"risk": risk, "note": note, "added": today_iso()}, separators=(",", ":"))
-        lines.append(f"{pair_key}: {cjson}")
-        write_file(CONFLICTS_FILE, "\n".join(lines) + "\n")
-        sort_conflicts_file()
-        print(f"Added conflict pair: {pair_key} (risk: {risk})")
-
-    elif subcmd == "remove":
-        if len(rest) < 2:
-            print("Usage: kf-track conflicts remove <track-a> <track-b>", file=sys.stderr)
-            return 1
-        id_a, id_b = rest[0], rest[1]
-        pair_key = conflict_pair_key(id_a, id_b)
-        lines = read_file_lines(CONFLICTS_FILE)
-        lines = [l for l in lines if not l.startswith(f"{pair_key}:")]
-        write_file(CONFLICTS_FILE, "\n".join(lines) + "\n")
-        print(f"Removed conflict pair: {pair_key}")
-
-    elif subcmd == "list":
-        filter_id = rest[0] if rest else None
-        if not CONFLICTS_FILE.exists():
-            print("(no conflicts.yaml)")
-            return 0
-        lines = [l for l in read_file_lines(CONFLICTS_FILE) if l.strip() and not l.startswith("#")]
-        if filter_id:
-            lines = [l for l in lines if filter_id in l]
-        if not lines:
-            suffix = f" for {filter_id}" if filter_id else ""
-            print(f"(no conflict pairs{suffix})")
+    # Extract --ref from args
+    ref = None
+    cleanup = None
+    filtered_args = []
+    i = 0
+    while i < len(args):
+        if args[i] == "--ref":
+            ref = args[i + 1]; i += 2
         else:
-            for line in lines:
-                pair_key = line.split(":")[0]
-                raw = line[line.index("{"):] if "{" in line else "{}"
-                try:
-                    data = json.loads(raw)
-                    risk = data.get("risk", "?")
-                    note = data.get("note", "")
-                except json.JSONDecodeError:
-                    risk = "?"
-                    note = ""
-                out = f"  {pair_key:<60}  risk={risk}"
-                if note:
-                    out += f"  {note}"
-                print(out)
+            filtered_args.append(args[i]); i += 1
 
-    elif subcmd == "clean":
-        if not CONFLICTS_FILE.exists():
-            print("(no conflicts.yaml)")
-            return 0
-        lines = [l for l in read_file_lines(CONFLICTS_FILE) if l.strip() and not l.startswith("#")]
-        removed = 0
-        for line in lines:
-            pair_key = line.split(":")[0]
-            parts = pair_key.split("/")
-            if len(parts) != 2:
-                continue
-            id_a, id_b = parts
-            status_a = get_field(id_a, "status") or "unknown"
-            status_b = get_field(id_b, "status") or "unknown"
-            if status_a in ("completed", "archived", "unknown") or status_b in ("completed", "archived", "unknown"):
-                # Remove this pair
-                all_lines = read_file_lines(CONFLICTS_FILE)
-                all_lines = [l for l in all_lines if not l.startswith(f"{pair_key}:")]
-                write_file(CONFLICTS_FILE, "\n".join(all_lines) + "\n")
-                print(f"  Removed: {pair_key} ({id_a}={status_a}, {id_b}={status_b})")
-                removed += 1
-        print(f"Cleaned {removed} stale conflict pair(s)")
+    if ref:
+        cleanup = setup_ref(ref)
 
-    else:
-        print("Usage: kf-track conflicts <add|remove|list|clean> [args]", file=sys.stderr)
-        print("  add <track-a> <track-b> [risk] [note]  Add/update conflict pair", file=sys.stderr)
-        print("  remove <track-a> <track-b>              Remove conflict pair", file=sys.stderr)
-        print("  list [track-id]                         List pairs (optionally filtered)", file=sys.stderr)
-        print("  clean                                   Remove pairs for completed tracks", file=sys.stderr)
-        return 1
+    try:
+        if not filtered_args:
+            print("Usage: kf-track conflicts <add|remove|list|clean> [args]", file=sys.stderr)
+            print("  add <track-a> <track-b> [risk] [note]  Add/update conflict pair", file=sys.stderr)
+            print("  remove <track-a> <track-b>              Remove conflict pair", file=sys.stderr)
+            print("  list [track-id]                         List pairs (optionally filtered)", file=sys.stderr)
+            print("  clean                                   Remove pairs for completed tracks", file=sys.stderr)
+            return 1
 
-    return 0
+        subcmd = filtered_args[0]
+        rest = filtered_args[1:]
+        reg = _get_registry()
+
+        if subcmd == "add":
+            if len(rest) < 2:
+                print("Usage: kf-track conflicts add <track-a> <track-b> [risk] [note]", file=sys.stderr)
+                print("  risk: high, medium, low (default: medium)", file=sys.stderr)
+                return 1
+            id_a, id_b = rest[0], rest[1]
+            risk = rest[2] if len(rest) > 2 else "medium"
+            note = rest[3] if len(rest) > 3 else ""
+
+            if id_a == id_b:
+                print("ERROR: Cannot create conflict pair with itself", file=sys.stderr)
+                return 1
+
+            pair_key = _conflict_pair_key(id_a, id_b)
+            reg.add_conflict(id_a, id_b, risk, note)
+            reg.save(track_ids=[id_a, id_b])
+            print(f"Added conflict pair: {pair_key} (risk: {risk})")
+
+        elif subcmd == "remove":
+            if len(rest) < 2:
+                print("Usage: kf-track conflicts remove <track-a> <track-b>", file=sys.stderr)
+                return 1
+            id_a, id_b = rest[0], rest[1]
+            pair_key = _conflict_pair_key(id_a, id_b)
+            reg.remove_conflict(id_a, id_b)
+            reg.save(track_ids=[id_a, id_b])
+            print(f"Removed conflict pair: {pair_key}")
+
+        elif subcmd == "list":
+            filter_id = rest[0] if rest else None
+            if filter_id:
+                # Show conflicts for a specific track
+                conflicts = reg.get_conflicts(filter_id)
+                if not conflicts:
+                    print(f"(no conflict pairs for {filter_id})")
+                else:
+                    for c in conflicts:
+                        peer = c.get("peer", "")
+                        pair_key = _conflict_pair_key(filter_id, peer)
+                        risk = c.get("risk", "?")
+                        cnote = c.get("note", "")
+                        out = f"  {pair_key:<60}  risk={risk}"
+                        if cnote:
+                            out += f"  {cnote}"
+                        print(out)
+            else:
+                # Show all conflict pairs
+                pairs = reg.all_conflict_pairs()
+                if not pairs:
+                    print("(no conflict pairs)")
+                else:
+                    for pair_key in sorted(pairs.keys()):
+                        pdata = pairs[pair_key]
+                        risk = pdata.get("risk", "?")
+                        cnote = pdata.get("note", "")
+                        out = f"  {pair_key:<60}  risk={risk}"
+                        if cnote:
+                            out += f"  {cnote}"
+                        print(out)
+
+        elif subcmd == "clean":
+            # Find and clean stale conflict pairs
+            pairs = reg.all_conflict_pairs()
+            all_entries = reg.all_entries()
+            removed = 0
+            affected_ids = set()
+
+            # Scan all tracks for conflict entries involving non-active tracks
+            for tid, data in all_entries.items():
+                conflicts = data.get("conflicts") or []
+                if not conflicts:
+                    continue
+                new_conflicts = []
+                for c in conflicts:
+                    peer = c.get("peer", "")
+                    peer_status = reg.get_field(peer, "status") or "unknown"
+                    own_status = data.get("status", "unknown")
+                    if own_status in ("completed", "archived", "unknown") or peer_status in ("completed", "archived", "unknown"):
+                        pair_key = _conflict_pair_key(tid, peer)
+                        print(f"  Removed: {pair_key} ({tid}={own_status}, {peer}={peer_status})")
+                        removed += 1
+                        affected_ids.add(tid)
+                    else:
+                        new_conflicts.append(c)
+                if len(new_conflicts) != len(conflicts):
+                    data["conflicts"] = new_conflicts
+                    reg._dirty.add(tid)
+
+            if affected_ids:
+                reg.save(track_ids=list(affected_ids))
+            print(f"Cleaned {removed} stale conflict pair(s)")
+
+        else:
+            print("Usage: kf-track conflicts <add|remove|list|clean> [args]", file=sys.stderr)
+            print("  add <track-a> <track-b> [risk] [note]  Add/update conflict pair", file=sys.stderr)
+            print("  remove <track-a> <track-b>              Remove conflict pair", file=sys.stderr)
+            print("  list [track-id]                         List pairs (optionally filtered)", file=sys.stderr)
+            print("  clean                                   Remove pairs for completed tracks", file=sys.stderr)
+            return 1
+
+        return 0
+    finally:
+        if cleanup:
+            cleanup()
 
 
 def cmd_archive(args):
@@ -1175,33 +924,17 @@ def cmd_archive(args):
     track_id = args[0]
     reason = args[1] if len(args) > 1 else "completed"
 
-    if not track_exists(track_id):
+    reg = _get_registry()
+
+    if not reg.exists(track_id):
         print(f"ERROR: Track not found: {track_id}", file=sys.stderr)
         return 1
 
-    set_field(track_id, "status", "archived")
-    set_field(track_id, "archived_at", today_iso())
-    set_field(track_id, "archive_reason", reason)
+    reg.update_status(track_id, "archived")
+    reg.set_field(track_id, "archive_reason", reason)
+    reg.clean_conflicts(track_id)
+    reg.save(track_ids=[track_id])
 
-    # Remove from deps.yaml
-    dp = _get_deps_file()
-    if Path(dp).exists():
-        lines = read_file_lines(dp)
-        new_lines = []
-        skip = False
-        for line in lines:
-            if line.startswith(f"{track_id}:"):
-                skip = True
-                continue
-            if skip:
-                if line.startswith("  "):
-                    continue
-                else:
-                    skip = False
-            new_lines.append(line)
-        write_file(dp, "\n".join(new_lines) + "\n")
-
-    conflicts_clean_track(track_id)
     print(f"Archived: {track_id} (reason: {reason})")
     return 0
 
@@ -1226,8 +959,9 @@ def cmd_compact(args):
 def _compact_run(args):
     dry_run = "--dry-run" in args
 
-    ensure_tracks_file()
     ensure_compactions_file()
+
+    reg = _get_registry()
 
     compactable_ids = []
     completed_ids = []
@@ -1241,13 +975,8 @@ def _compact_run(args):
                 compactable_ids.append(d.name)
 
     # Source 2: completed tracks with directories
-    fp = _get_tracks_file()
-    for line in read_file_lines(fp):
-        if line.startswith("#") or not line.strip():
-            continue
-        if '"status":"completed"' not in line:
-            continue
-        tid = line.split(":")[0]
+    completed_entries = reg.list_by_status("completed")
+    for tid in sorted(completed_entries.keys()):
         track_dir = TRACKS_DIR / tid
         if track_dir.is_dir():
             completed_ids.append(tid)
@@ -1265,7 +994,7 @@ def _compact_run(args):
     first_created = None
     last_created = None
     for tid in compactable_ids:
-        created = get_field(tid, "created") or ""
+        created = reg.get_field(tid, "created") or ""
         if created and created != "null":
             if first_created is None or created < first_created:
                 first_created = created
@@ -1312,18 +1041,23 @@ def _compact_run(args):
     for tid in completed_ids:
         shutil.rmtree(TRACKS_DIR / tid, ignore_errors=True)
 
-    # Archive completed tracks in tracks.yaml
+    # Archive completed tracks in registry
     for tid in completed_ids:
-        set_field(tid, "status", "archived")
-        set_field(tid, "archived_at", compact_date)
-        set_field(tid, "archive_reason", f"compacted \u2014 recover from {commit_hash}")
+        if reg.exists(tid):
+            reg.set_field(tid, "status", "archived")
+            reg.set_field(tid, "archived_at", compact_date)
+            reg.set_field(tid, "archive_reason", f"compacted \u2014 recover from {commit_hash}")
+    # Save any remaining tracks (those not deleted)
+    remaining = [tid for tid in completed_ids if reg.exists(tid) and (TRACKS_DIR / tid).exists()]
+    if remaining:
+        reg.save(track_ids=remaining)
 
     # Record compaction
     with open(COMPACTIONS_FILE, "a") as f:
         f.write(f"{commit_hash}: {record_json}\n")
 
     # Commit
-    run_git("add", str(TRACKS_DIR), str(_get_tracks_file()), str(COMPACTIONS_FILE))
+    run_git("add", str(TRACKS_DIR), str(TRACKS_FILE), str(COMPACTIONS_FILE))
     run_git("commit", "-m", f"chore: compact archive ({completed_count} completed, {archived_count} archived \u2014 recover from {commit_hash})")
 
     print("Compaction complete.")
@@ -1569,16 +1303,14 @@ def cmd_index(args):
             print(f"Unknown argument: {args[i]}", file=sys.stderr); return 1
 
     if ref:
-        tracks_content = run_git("show", f"{ref}:.agent/kf/tracks.yaml")
-        if not tracks_content:
-            print(f"ERROR: Cannot read tracks.yaml from ref '{ref}'", file=sys.stderr)
-            return 1
+        reg = TracksRegistry.from_ref(ref)
         quick_links_content = run_git("show", f"{ref}:.agent/kf/quick-links.md")
     else:
-        ensure_tracks_file()
-        tracks_content = read_file_text(_get_tracks_file())
+        reg = _get_registry()
         ensure_quick_links_file()
         quick_links_content = read_file_text(QUICK_LINKS_FILE)
+
+    all_entries = reg.all_entries()
 
     output = "# Kiloforge Project Index\n\n"
 
@@ -1590,19 +1322,11 @@ def cmd_index(args):
             output += "\n".join(ql_lines) + "\n\n"
 
     # Count tracks by status
-    pending = in_progress = completed = archived = total = 0
-    for line in tracks_content.splitlines():
-        if not line.strip() or line.startswith("#"):
-            continue
-        total += 1
-        if '"status":"pending"' in line:
-            pending += 1
-        elif '"status":"in-progress"' in line:
-            in_progress += 1
-        elif '"status":"completed"' in line:
-            completed += 1
-        elif '"status":"archived"' in line:
-            archived += 1
+    pending = sum(1 for d in all_entries.values() if d.get("status") == "pending")
+    in_progress = sum(1 for d in all_entries.values() if d.get("status") == "in-progress")
+    completed = sum(1 for d in all_entries.values() if d.get("status") == "completed")
+    archived = sum(1 for d in all_entries.values() if d.get("status") == "archived")
+    total = len(all_entries)
 
     output += "## Summary\n\n"
     output += "| Status | Count |\n"
@@ -1616,38 +1340,22 @@ def cmd_index(args):
     # In-progress tracks
     if in_progress > 0:
         output += "## In Progress\n\n"
-        for line in tracks_content.splitlines():
-            if not line.strip() or line.startswith("#"):
+        for tid in sorted(all_entries.keys()):
+            data = all_entries[tid]
+            if data.get("status") != "in-progress":
                 continue
-            if '"status":"in-progress"' not in line:
-                continue
-            tid = line.split(":")[0]
-            try:
-                raw = line[line.index("{"):]
-                data = json.loads(raw)
-                title = data.get("title", "")
-            except (json.JSONDecodeError, ValueError):
-                m = re.search(r'"title":"([^"]*)"', line)
-                title = m.group(1) if m else ""
+            title = data.get("title", "")
             output += f"- **{tid}** \u2014 {title}\n"
         output += "\n"
 
     # Pending tracks
     if pending > 0:
         output += "## Pending\n\n"
-        for line in tracks_content.splitlines():
-            if not line.strip() or line.startswith("#"):
+        for tid in sorted(all_entries.keys()):
+            data = all_entries[tid]
+            if data.get("status") != "pending":
                 continue
-            if '"status":"pending"' not in line:
-                continue
-            tid = line.split(":")[0]
-            try:
-                raw = line[line.index("{"):]
-                data = json.loads(raw)
-                title = data.get("title", "")
-            except (json.JSONDecodeError, ValueError):
-                m = re.search(r'"title":"([^"]*)"', line)
-                title = m.group(1) if m else ""
+            title = data.get("title", "")
             output += f"- **{tid}** \u2014 {title}\n"
         output += "\n"
 
@@ -1752,46 +1460,33 @@ def cmd_status(args):
                     break
 
     # --- Tracks data ---
-    tracks_content = _read_kf("tracks.yaml")
-    if not tracks_content:
-        print("ERROR: No tracks.yaml found. Run /kf-setup first.", file=sys.stderr)
+    if ref:
+        reg = TracksRegistry.from_ref(ref)
+    else:
+        reg = _get_registry()
+
+    all_entries = reg.all_entries()
+    if not all_entries:
+        print("ERROR: No tracks found. Run /kf-setup first.", file=sys.stderr)
         return 1
 
-    track_lines = [l for l in tracks_content.splitlines() if l.strip() and not l.startswith("#")]
-
     # Count by status
-    pending = in_progress = completed = archived = total = 0
-    for line in track_lines:
-        total += 1
-        if '"status":"pending"' in line:
-            pending += 1
-        elif '"status":"in-progress"' in line:
-            in_progress += 1
-        elif '"status":"completed"' in line:
-            completed += 1
-        elif '"status":"archived"' in line:
-            archived += 1
+    pending = sum(1 for d in all_entries.values() if d.get("status") == "pending")
+    in_progress = sum(1 for d in all_entries.values() if d.get("status") == "in-progress")
+    completed = sum(1 for d in all_entries.values() if d.get("status") == "completed")
+    archived = sum(1 for d in all_entries.values() if d.get("status") == "archived")
+    total = len(all_entries)
 
     # --- Task progress for active tracks ---
     active_tracks = []  # list of dicts
 
-    for line in track_lines:
-        if '"status":"pending"' not in line and '"status":"in-progress"' not in line:
+    for tid in sorted(all_entries.keys()):
+        data = all_entries[tid]
+        tstatus = data.get("status", "")
+        if tstatus not in ("pending", "in-progress"):
             continue
-        tid = line.split(":")[0]
-        try:
-            raw = line[line.index("{"):]
-            data = json.loads(raw)
-            ttitle = data.get("title", "")
-            ttype = data.get("type", "")
-            tstatus = data.get("status", "")
-        except (json.JSONDecodeError, ValueError):
-            m_t = re.search(r'"title":"([^"]*)"', line)
-            m_s = re.search(r'"status":"([^"]*)"', line)
-            m_tp = re.search(r'"type":"([^"]*)"', line)
-            ttitle = m_t.group(1) if m_t else ""
-            tstatus = m_s.group(1) if m_s else ""
-            ttype = m_tp.group(1) if m_tp else ""
+        ttitle = data.get("title", "")
+        ttype = data.get("type", "")
 
         # Get task progress from track.yaml
         track_yaml = ""
@@ -1836,10 +1531,8 @@ def cmd_status(args):
                 elif "done: false" in pline:
                     phase_tasks_total += 1
                     if not next_task:
-                        # Try to extract from a nearby text line (or this line)
                         m = re.search(r'text:\s*"?(.+?)"?\s*$', pline)
                         if not m:
-                            # Look back - the text is usually on the previous line
                             pass
 
             # Close last phase
@@ -1848,19 +1541,6 @@ def cmd_status(args):
 
             # Second pass for next_task extraction
             if not next_task:
-                in_plan2 = False
-                for pline in track_yaml.splitlines():
-                    if pline == "plan:":
-                        in_plan2 = True
-                        continue
-                    if not in_plan2:
-                        continue
-                    if pline and not pline.startswith(" ") and ":" in pline and pline != "plan:":
-                        break
-                    if "done: false" in pline:
-                        # The text is usually on the previous-ish line
-                        pass
-                # Alternative: scan for text/done pairs
                 in_plan2 = False
                 last_text = ""
                 for pline in track_yaml.splitlines():
@@ -1890,37 +1570,16 @@ def cmd_status(args):
         })
 
     # --- Deps data ---
-    deps_content = _read_kf("tracks/deps.yaml")
-
-    def _parse_deps_for_track(tid):
-        """Parse deps from deps_content string for a track."""
-        if not deps_content:
-            return []
-        deps = []
-        found = False
-        for dline in deps_content.splitlines():
-            if dline.startswith(f"{tid}:"):
-                found = True
-                if "[]" in dline:
-                    return []
-                continue
-            if found:
-                if dline.startswith("  - "):
-                    deps.append(dline[4:])
-                elif dline and not dline.startswith(" ") and not dline.startswith("#"):
-                    break
-        return deps
-
     ready_ids = []
     for t in active_tracks:
         tid = t["id"]
-        track_deps = _parse_deps_for_track(tid)
+        track_deps = reg.get_deps(tid)
         dep_total = len(track_deps)
         dep_met = 0
         blocked = False
         for dep in track_deps:
-            # Check if dep is completed in tracks_content
-            if any(l.startswith(f"{dep}:") and '"status":"completed"' in l for l in track_lines):
+            dep_status = reg.get_field(dep, "status") or "unknown"
+            if dep_status == "completed":
                 dep_met += 1
             else:
                 blocked = True
@@ -2075,36 +1734,16 @@ def cmd_status(args):
     print()
 
     # --- Conflict Risk section ---
-    conflicts_content = _read_kf("tracks/conflicts.yaml")
-    active_ids_set = {t["id"] for t in active_tracks}
-    conflict_entries = []
-    if conflicts_content:
-        for cline in conflicts_content.splitlines():
-            if not cline.strip() or cline.startswith("#"):
-                continue
-            pair_key = cline.split(":")[0]
-            parts = pair_key.split("/")
-            if len(parts) != 2:
-                continue
-            id_a, id_b = parts
-            if id_a not in active_ids_set or id_b not in active_ids_set:
-                continue
-            raw = cline[cline.index("{"):] if "{" in cline else "{}"
-            try:
-                data = json.loads(raw)
-                crisk = data.get("risk", "unknown")
-                cnote = data.get("note", "")
-            except json.JSONDecodeError:
-                crisk = "unknown"
-                cnote = ""
-            conflict_entries.append((pair_key, crisk, cnote))
-
-    if conflict_entries:
+    conflict_pairs = reg.all_conflict_pairs()
+    if conflict_pairs:
         print("-" * 80)
         print("                              CONFLICT RISK")
         print("-" * 80)
         print()
-        for pair_key, crisk, cnote in conflict_entries:
+        for pair_key in sorted(conflict_pairs.keys()):
+            pdata = conflict_pairs[pair_key]
+            crisk = pdata.get("risk", "unknown")
+            cnote = pdata.get("note", "")
             if len(cnote) > 80:
                 cnote = cnote[:77] + "..."
             print(f"  {pair_key:<60} [{crisk}]")
@@ -2120,17 +1759,11 @@ def cmd_status(args):
         tid = t["id"]
         if tid in ready_ids:
             continue
-        track_deps = _parse_deps_for_track(tid)
+        track_deps = reg.get_deps(tid)
         unmet = []
         for dep in track_deps:
-            if not any(l.startswith(f"{dep}:") and '"status":"completed"' in l for l in track_lines):
-                dep_status = "unknown"
-                for l in track_lines:
-                    if l.startswith(f"{dep}:"):
-                        m = re.search(r'"status":"([^"]*)"', l)
-                        if m:
-                            dep_status = m.group(1)
-                        break
+            dep_status = reg.get_field(dep, "status") or "unknown"
+            if dep_status != "completed":
                 unmet.append(f"{dep} ({dep_status})")
         if unmet:
             blocked_tracks.append((tid, ", ".join(unmet)))
@@ -2408,7 +2041,8 @@ COMMANDS:
   stash clean <track-id>                                Delete stash branches for a track
 
   status [--ref <branch|commit>]                          Full project status report
-  index [--ref <branch|commit>]                          Generate project index from tracks.yaml
+  index [--ref <branch|commit>]                          Generate project index
+  migrate-meta [--dry-run]                               Migrate legacy files to per-track meta.yaml
   config list                                            List all project settings
   config get <key>                                       Get a setting value
   config set <key> <value>                               Set a setting value
@@ -2439,12 +2073,14 @@ def cmd_approve(args):
     if not track_ids:
         print("Usage: kf-track approve <track-id> [track-id ...]", file=sys.stderr)
         return 1
+    reg = _get_registry()
     for tid in track_ids:
-        if not track_exists(tid):
+        if not reg.exists(tid):
             print(f"ERROR: Track not found: {tid}", file=sys.stderr)
             return 1
-        set_field(tid, "approved", True)
+        reg.set_field(tid, "approved", True)
         print(f"Approved: {tid}")
+    reg.save(track_ids=track_ids)
     return 0
 
 
@@ -2454,12 +2090,46 @@ def cmd_disapprove(args):
     if not track_ids:
         print("Usage: kf-track disapprove <track-id> [track-id ...]", file=sys.stderr)
         return 1
+    reg = _get_registry()
     for tid in track_ids:
-        if not track_exists(tid):
+        if not reg.exists(tid):
             print(f"ERROR: Track not found: {tid}", file=sys.stderr)
             return 1
-        set_field(tid, "approved", False)
+        reg.set_field(tid, "approved", False)
         print(f"Disapproved: {tid}")
+    reg.save(track_ids=track_ids)
+    return 0
+
+
+def cmd_migrate_meta(args):
+    """Migrate from legacy centralized files to per-track meta.yaml."""
+    dry_run = "--dry-run" in args
+
+    legacy = TracksRegistry.from_legacy(TRACKS_FILE, DEPS_FILE, CONFLICTS_FILE)
+    entries = legacy.all_entries()
+
+    if not entries:
+        print("Nothing to migrate.")
+        return 0
+
+    print(f"Migrating {len(entries)} track(s) to per-track meta.yaml...")
+
+    for tid, data in sorted(entries.items()):
+        meta_path = TRACKS_DIR / tid / "meta.yaml"
+        if meta_path.exists():
+            print(f"  SKIP {tid} (meta.yaml already exists)")
+            continue
+        if dry_run:
+            print(f"  WOULD CREATE {tid}/meta.yaml")
+        else:
+            legacy.tracks_dir = TRACKS_DIR
+            legacy.save(track_ids=[tid])
+            print(f"  CREATED {tid}/meta.yaml")
+
+    if dry_run:
+        print("(dry run \u2014 no changes made)")
+    else:
+        print("Migration complete. Legacy files can be removed after verification.")
     return 0
 
 
@@ -2486,6 +2156,7 @@ def main():
         "quick-links": lambda: cmd_quick_links(rest),
         "status": lambda: cmd_status(rest),
         "config": lambda: cmd_config(rest),
+        "migrate-meta": lambda: cmd_migrate_meta(rest),
         "help": lambda: cmd_help(),
         "--help": lambda: cmd_help(),
         "-h": lambda: cmd_help(),
