@@ -562,6 +562,55 @@ Does this look correct? Any changes?
 
 This is where the user can override TDD strictness or any other value if they specifically want to. Only change if the user explicitly requests it.
 
+## Phase 3b: Product Specification Proposal
+
+After the user confirms the project summary, propose an initial product specification. This is derived from everything gathered so far — product definition, goals, tech stack, and any documentation discovered in Phase 0.
+
+**Generate proposed spec items** using hierarchical dot notation. Group by domain area. For example, a web app with auth and an API might produce:
+
+```
+Based on your project definition, here's a proposed product specification:
+
+  auth.login           [high]    User login with email/password
+  auth.registration    [high]    New user registration flow
+  auth.password-reset  [medium]  Password reset via email
+  api.users            [high]    User CRUD endpoints
+  api.rate-limiting    [medium]  Per-user API rate limiting
+  data.export          [low]     Export user data as CSV/JSON
+  ui.dashboard         [high]    Main dashboard view
+  ui.settings          [medium]  User settings page
+
+These spec items define WHAT the product should do. Tracks (created by
+architects) will link to these items as they implement them.
+
+What would you like to do?
+  1. Accept this specification
+  2. Edit (add, remove, or modify items)
+  3. Skip — start with an empty spec (architects will build it incrementally)
+```
+
+**If the user chooses 1 (Accept):**
+- Create `.agent/kf/spec.yaml` with all proposed items (status: active, added_by: _init)
+- Create a spec operation file at `.agent/kf/spec/{timestamp}-{hash}-init.yaml` recording the initial operations
+
+**If the user chooses 2 (Edit):**
+- Let the user add/remove/modify items interactively
+- Then create spec.yaml and the operation file with the final set
+
+**If the user chooses 3 (Skip):**
+- Create an empty `.agent/kf/spec.yaml` (version 1, no items)
+- Do NOT create any operation files
+- Inform the user: "Architects will add spec items via `/kf-architect` as they research and create tracks."
+
+**Guidelines for proposing spec items:**
+- Derive from goals, description, and problem statement — not from implementation details
+- Use hierarchical IDs: `{domain}.{capability}` (e.g., `auth.oauth2`, `api.users`)
+- Assign priority: high (core to the product), medium (important), low (nice-to-have)
+- Keep descriptions concise (one sentence)
+- For greenfield projects with minimal info, propose fewer items (3-5)
+- For brownfield projects with existing code, analyze the codebase structure to identify existing capabilities and propose spec items that cover both what exists and what's planned
+- Do NOT propose implementation details — spec items describe WHAT, not HOW
+
 ## Phase 4: Artifact Generation
 
 After completing Q&A, populate the metadata files that were scaffolded by `kf-install.py` in the pre-flight step. The scaffolding already created empty templates — this step fills them with the user's answers.
@@ -591,7 +640,26 @@ Populate with Q&A answers: languages, frameworks, database, infrastructure, depe
 
 Populate with: TDD = strict, commit strategy from Q&A. Defaults: code review = optional, verification = track completion only.
 
-### 6. .agent/kf/code_styleguides/
+### 6. .agent/kf/spec.yaml and .agent/kf/spec/
+
+Created during Phase 3b. If the user accepted or edited a specification:
+
+- `spec.yaml` contains the materialized snapshot with all initial items
+- `spec/{timestamp}-{hash}-init.yaml` contains the operation file recording the initial `adds` operations
+
+If the user skipped, `spec.yaml` is created empty:
+
+```yaml
+version: 1
+snapshot_date: "{today}"
+snapshot_after_tracks: []
+snapshot_after_ops: []
+items: {}
+```
+
+The `spec/` directory is created regardless (architects will write operation files there).
+
+### 7. .agent/kf/code_styleguides/
 
 Generate style guide files based on the languages selected in Section 5. For each selected language, create a markdown file (e.g., `typescript.md`, `python.md`, `go.md`) in `.agent/kf/code_styleguides/` containing:
 
