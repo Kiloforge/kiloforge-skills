@@ -853,7 +853,9 @@ def validate_spec_ops(spec: SpecSnapshot,
 
 def fulfillment_status(spec: SpecSnapshot,
                        tracks: dict[str, dict],
-                       include_archived: bool = False) -> dict[str, dict]:
+                       include_archived: bool = False,
+                       compacted_tracks: Optional[dict[str, dict]] = None,
+                       ) -> dict[str, dict]:
     """Compute fulfillment readiness for each active spec item.
 
     Examines track spec_refs (required-for, relates-to) to build a
@@ -863,6 +865,10 @@ def fulfillment_status(spec: SpecSnapshot,
     Args:
         spec: The current (materialized) spec snapshot.
         tracks: Dict of {track_id: track_meta_dict} — all tracks.
+        include_archived: If True, include archived tracks.
+        compacted_tracks: Additional tracks recovered from compacted archives
+                          (via load_compacted_tracks). Merged into tracks
+                          for the query without modifying the original dict.
 
     Returns:
         Dict of {item_id: {
@@ -879,11 +885,18 @@ def fulfillment_status(spec: SpecSnapshot,
     """
     result = {}
 
+    # Merge compacted tracks if provided
+    all_tracks = dict(tracks)
+    if compacted_tracks:
+        for tid, meta in compacted_tracks.items():
+            if tid not in all_tracks:
+                all_tracks[tid] = meta
+
     # Build reverse index: spec_item → {required: [tids], related: [tids]}
     item_required: dict[str, list[str]] = {}
     item_related: dict[str, list[str]] = {}
-    for tid, meta in tracks.items():
-        if not include_archived and meta.get("status") == "archived":
+    for tid, meta in all_tracks.items():
+        if not include_archived and meta.get("status") in ("archived",):
             continue
         spec_refs = meta.get("spec_refs")
         if not spec_refs or not isinstance(spec_refs, list):
@@ -901,7 +914,7 @@ def fulfillment_status(spec: SpecSnapshot,
                 item_related.setdefault(item_id, []).append(tid)
 
     def _track_info(tid):
-        meta = tracks.get(tid, {})
+        meta = all_tracks.get(tid, {})
         return {
             "id": tid,
             "status": meta.get("status", "unknown"),
@@ -942,6 +955,7 @@ def spec_item_tracks(spec: SpecSnapshot,
                      item_id: str,
                      tracks: dict[str, dict],
                      include_archived: bool = False,
+                     compacted_tracks: Optional[dict[str, dict]] = None,
                      ) -> Optional[dict]:
     """Get all tracks linked to a single spec item with their state.
 
@@ -973,10 +987,17 @@ def spec_item_tracks(spec: SpecSnapshot,
     if item_data is None:
         return None
 
+    # Merge compacted tracks if provided
+    all_tracks = dict(tracks)
+    if compacted_tracks:
+        for tid, meta in compacted_tracks.items():
+            if tid not in all_tracks:
+                all_tracks[tid] = meta
+
     required = []
     related = []
 
-    for tid, meta in tracks.items():
+    for tid, meta in all_tracks.items():
         track_status = meta.get("status", "")
         if not include_archived and track_status in ("archived",):
             continue
