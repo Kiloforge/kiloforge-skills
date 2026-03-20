@@ -41,31 +41,7 @@ LEGACY_NAMES = [
     "kf-claim",
 ]
 
-DEPS_YAML_HEADER = """\
-# Track Dependency Graph
-#
-# PROTOCOL:
-#   Canonical source for track dependency ordering (adjacency list).
-#   Each key is a track ID; its value is a list of prerequisite track IDs.
-#
-# RULES:
-#   - Only pending/in-progress tracks listed. Completed tracks pruned on cleanup.
-#   - Architect appends entries when creating tracks.
-#   - Developer checks deps before claiming: all deps must be completed.
-#   - Cycles are forbidden.
-"""
-
-CONFLICTS_YAML_HEADER = """\
-# Track Conflict Pairs
-#
-# PROTOCOL:
-#   Records pairs of tracks that risk merge conflicts if worked in parallel.
-#   Each key is "{lower-id}/{higher-id}" (alphabetical).
-#
-# RULES:
-#   - Architect adds pairs when genuine file overlap exists.
-#   - Pairs auto-cleaned when either track completes.
-"""
+# Legacy constants removed — deps and conflicts now stored in per-track meta.yaml
 
 
 def detect_skills_dir(script_path: Path) -> Path:
@@ -239,17 +215,11 @@ def scaffold_metadata(project_dir: Path, primary_branch: str) -> list[str]:
         "  commands: []\n"):
         created.append("workflow.yaml")
 
-    # tracks.yaml
-    if write_if_missing(kf_dir / "tracks.yaml", ""):
-        created.append("tracks.yaml")
-
-    # tracks/deps.yaml
-    if write_if_missing(tracks_dir / "deps.yaml", DEPS_YAML_HEADER):
-        created.append("tracks/deps.yaml")
-
-    # tracks/conflicts.yaml
-    if write_if_missing(tracks_dir / "conflicts.yaml", CONFLICTS_YAML_HEADER):
-        created.append("tracks/conflicts.yaml")
+    # spec/ directory for spec operation files
+    spec_dir = kf_dir / "spec"
+    if not spec_dir.exists():
+        spec_dir.mkdir(parents=True, exist_ok=True)
+        created.append("spec/")
 
     # setup_state.json
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -268,6 +238,17 @@ def scaffold_metadata(project_dir: Path, primary_branch: str) -> list[str]:
         f'  "last_updated": "{now}"\n'
         '}\n'):
         created.append("setup_state.json")
+
+    # Clean up legacy centralized state files (migrated to per-track meta.yaml)
+    legacy_files = [
+        kf_dir / "tracks.yaml",
+        tracks_dir / "deps.yaml",
+        tracks_dir / "conflicts.yaml",
+    ]
+    for lf in legacy_files:
+        if lf.exists():
+            lf.unlink()
+            print(f"  Cleaned legacy file: {lf.name}")
 
     return created
 

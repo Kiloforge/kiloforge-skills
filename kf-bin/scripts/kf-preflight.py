@@ -75,7 +75,6 @@ REQUIRED_FILES = [
     ".agent/kf/product.yaml",
     ".agent/kf/tech-stack.yaml",
     ".agent/kf/workflow.yaml",
-    ".agent/kf/tracks.yaml",
 ]
 
 REQUIRED_TOOLS = [

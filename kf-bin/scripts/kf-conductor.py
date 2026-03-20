@@ -566,16 +566,12 @@ def run_dispatch(max_w: int, timeout_min: int) -> DispatchResult:
 
 def _track_completed_on_primary(track_id: str) -> bool:
     """Check if a track is marked completed on the primary branch."""
-    result = subprocess.run(
-        ["git", "show", f"HEAD:.agent/kf/tracks.yaml"],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
+    try:
+        from lib.tracks import TracksRegistry
+        reg = TracksRegistry.from_ref("HEAD")
+        return reg.get_field(track_id, "status") == "completed"
+    except Exception:
         return False
-    for line in result.stdout.split("\n"):
-        if line.startswith(f"{track_id}:") and '"completed"' in line:
-            return True
-    return False
 
 
 def auto_cleanup_completed():

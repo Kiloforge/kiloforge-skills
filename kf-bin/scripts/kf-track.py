@@ -38,6 +38,7 @@ from lib.tracks import TracksRegistry
 # --- Config ---
 SCRIPT_DIR = Path(__file__).resolve().parent
 KF_DIR = SCRIPT_DIR.parent  # scripts live in .agent/kf/bin/scripts, KF_DIR is .agent/kf
+# Legacy file paths — only referenced by migrate-meta and compact commands
 TRACKS_FILE = KF_DIR / "tracks.yaml"
 DEPS_FILE = KF_DIR / "tracks" / "deps.yaml"
 CONFLICTS_FILE = KF_DIR / "tracks" / "conflicts.yaml"
@@ -302,7 +303,7 @@ def ensure_quick_links_file():
             "\n"
             "- [Product Definition](./product.md)\n"
             "- [Tech Stack](./tech-stack.md)\n"
-            "- [Tracks Registry](./tracks.yaml)\n"
+            "- [Track State](./tracks/)\n"
         ))
 
 
