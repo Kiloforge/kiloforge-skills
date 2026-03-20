@@ -8,7 +8,7 @@ metadata:
 
 # Kiloforge Setup
 
-Initialize or resume Kiloforge project setup. This command creates foundational project documentation through interactive Q&A.
+Initialize or resume Kiloforge project setup. This command creates foundational project documentation through interactive Q&A, pre-populated from existing project documentation when available.
 
 ## Use this skill when
 
@@ -27,89 +27,127 @@ Initialize or resume Kiloforge project setup. This command creates foundational 
 - Provide actionable steps and verification.
 - If detailed examples are required, open `resources/implementation-playbook.md`.
 
-## Pre-flight Checks
+## Phase 0: Repository Check
 
-0. **Check for git repository:**
+### Step 0a — Detect git repository
 
-   ```bash
-   git rev-parse --git-dir 2>/dev/null
-   ```
+```bash
+git rev-parse --git-dir 2>/dev/null
+```
 
-   If this fails (not inside a git repo), present the clone options:
+If this fails (not inside a git repo), present the clone options:
 
-   ```
-   This directory is not a git repository. How would you like to set up?
+```
+This directory is not a git repository. How would you like to set up?
 
-   1. Clone an existing repository
-   2. Initialize a new repo here (git init)
-   ```
+1. Clone an existing repository
+2. Initialize a new repo here (git init)
+```
 
-   **If the user chooses 1 (Clone):**
+**If the user chooses 1 (Clone):**
 
-   Ask for the repo URL:
-   ```
-   Enter the repository URL (e.g., git@github.com:org/repo.git):
-   ```
+Ask for the repo URL:
+```
+Enter the repository URL (e.g., git@github.com:org/repo.git):
+```
 
-   Then ask which clone mode:
-   ```
-   How should the repo be cloned?
+Then ask which clone mode:
+```
+How should the repo be cloned?
 
-   1. Standard clone — single working tree, simple workflow
-      Best for: solo development, small teams, straightforward projects
+1. Standard clone — single working tree, simple workflow
+   Best for: solo development, small teams, straightforward projects
 
-   2. Worktree clone — bare repo with worktrees for parallel agents
-      Best for: multi-agent parallel development with kiloforge conductor
-   ```
+2. Worktree clone — bare repo with worktrees for parallel agents
+   Best for: multi-agent parallel development with kiloforge conductor
+```
 
-   **Standard clone:**
-   ```bash
-   git clone <url> .
-   ```
-   If the directory is not empty, clone into a subdirectory:
-   ```bash
-   git clone <url>
-   cd <repo-name>
-   ```
+**Standard clone:**
+```bash
+git clone <url> .
+```
+If the directory is not empty, clone into a subdirectory:
+```bash
+git clone <url>
+cd <repo-name>
+```
 
-   **Worktree clone:**
+**Worktree clone:**
 
-   Clone bare into a hidden `.bare/` directory with a `.git` file pointer, matching the conductor's expected layout:
-   ```bash
-   git clone --bare <url> .bare
-   echo "gitdir: ./.bare" > .git
-   git config core.bare false
-   git config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
-   git fetch origin
+Clone bare into a hidden `.bare/` directory with a `.git` file pointer, matching the conductor's expected layout:
+```bash
+git clone --bare <url> .bare
+echo "gitdir: ./.bare" > .git
+git config core.bare false
+git config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
+git fetch origin
 
-   # Detach HEAD so worktrees can checkout the primary branch.
-   # A bare clone's HEAD points to the default branch, blocking worktree add.
-   PRIMARY_BRANCH=$(git symbolic-ref HEAD | sed 's|refs/heads/||')
-   git update-ref --no-deref HEAD $(git rev-parse HEAD)
+# Detach HEAD so worktrees can checkout the primary branch.
+# A bare clone's HEAD points to the default branch, blocking worktree add.
+PRIMARY_BRANCH=$(git symbolic-ref HEAD | sed 's|refs/heads/||')
+git update-ref --no-deref HEAD $(git rev-parse HEAD)
 
-   # Create the primary worktree
-   git worktree add "${PRIMARY_BRANCH}" "${PRIMARY_BRANCH}"
-   cd "${PRIMARY_BRANCH}"
-   ```
+# Create the primary worktree
+git worktree add "${PRIMARY_BRANCH}" "${PRIMARY_BRANCH}"
+cd "${PRIMARY_BRANCH}"
+```
 
-   Inform the user:
-   ```
-   Bare repo at:          {path}/.bare/
-   Primary worktree at:   {path}/{PRIMARY_BRANCH}/
+Inform the user:
+```
+Bare repo at:          {path}/.bare/
+Primary worktree at:   {path}/{PRIMARY_BRANCH}/
 
-   Worktrees for architect and developer agents will be created automatically
-   by the conductor. You are now in the primary worktree.
-   ```
+Worktrees for architect and developer agents will be created automatically
+by the conductor. You are now in the primary worktree.
+```
 
-   Skip the primary branch question in step 1 — it was already determined from the bare repo HEAD. The conductor auto-detects the bare repo / worktree layout at runtime, so no clone mode needs to be stored.
+Skip the primary branch question in Phase 1 — it was already determined from the bare repo HEAD. The conductor auto-detects the bare repo / worktree layout at runtime, so no clone mode needs to be stored.
 
-   **If the user chooses 2 (New repo):**
+**If the user chooses 2 (New repo):**
 
-   ```bash
-   git init
-   ```
+```bash
+git init
+```
 
-   Continue to step 1 as normal.
+Continue to Phase 1 as normal.
+
+### Step 0b — Scan existing project documentation
+
+**This step runs BEFORE any interactive questions.** If we are in an existing git repo (brownfield project), scan for documentation and code that can pre-populate setup answers. This dramatically reduces the number of questions the user needs to answer.
+
+**Scan for documentation files:**
+
+```bash
+# Find common documentation files
+find . -maxdepth 3 -type f \( \
+  -iname "README*" -o -iname "CONTRIBUTING*" -o -iname "ARCHITECTURE*" \
+  -o -iname "DESIGN*" -o -iname "REQUIREMENTS*" -o -iname "PRD*" \
+  -o -iname "SPEC*" -o -iname "TODO*" -o -iname "ROADMAP*" \
+  -o -iname "CHANGELOG*" -o -iname "package.json" -o -iname "pyproject.toml" \
+  -o -iname "Cargo.toml" -o -iname "go.mod" -o -iname "Makefile" \
+  -o -iname "Dockerfile" -o -iname "docker-compose*" \
+  -o -iname ".eslintrc*" -o -iname ".prettierrc*" -o -iname "tsconfig*" \
+  -o -iname "requirements*.txt" -o -iname "setup.py" -o -iname "setup.cfg" \
+\) 2>/dev/null | head -50
+```
+
+**Read and analyze each found file** (use the Read tool). Extract:
+
+- **Project name** — from package.json `name`, go.mod module, Cargo.toml `[package].name`, pyproject.toml `[project].name`, or README title
+- **Description** — from package.json `description`, README first paragraph, pyproject.toml `[project].description`
+- **Languages** — from file extensions (`.ts`, `.py`, `.go`, `.rs`), config files (tsconfig.json, pyproject.toml, go.mod, Cargo.toml)
+- **Frameworks** — from dependencies (package.json deps, requirements.txt, go.mod requires)
+- **Database** — from dependencies (pg, mysql, mongo, sqlite, prisma, sqlalchemy, gorm)
+- **Infrastructure** — from Dockerfile, docker-compose, serverless.yml, Procfile, vercel.json, netlify.toml
+- **Problem statement / goals** — from README "About", "Overview", "Goals" sections; PRD files; SPEC files
+- **Target users** — from README, PRD, or CONTRIBUTING docs
+- **Existing linting/formatting** — from .eslintrc, .prettierrc, pyproject.toml `[tool.*]`, .golangci.yml
+- **Test framework** — from jest.config, pytest.ini, go test patterns, test directories
+- **Commit conventions** — from CONTRIBUTING.md, .commitlintrc, or recent git log patterns
+
+Store all discovered information in a `_discovery` dict for use during Q&A. This information will be presented to the user for confirmation rather than asking from scratch.
+
+## Phase 1: Pre-flight Checks
 
 1. **Determine primary branch:**
 
@@ -206,16 +244,17 @@ Initialize or resume Kiloforge project setup. This command creates foundational 
    - If `"in_progress"` or `"scaffolded"`: Offer to resume from last section
 
 5. Detect project type by checking for existing indicators:
-   - **Greenfield (new project)**: No .git, no package.json, no requirements.txt, no go.mod, no src/ directory
+   - **Greenfield (new project)**: No .git history, no package.json, no requirements.txt, no go.mod, no src/ directory
    - **Brownfield (existing project)**: Any of the above exist
 
-## Interactive Q&A Protocol
+## Phase 2: Interactive Q&A Protocol
 
 **CRITICAL RULES:**
 
 - Ask ONE question per turn
 - Wait for user response before proceeding
-- Offer 2-3 suggested answers plus "Type your own" option
+- **If a value was discovered in Phase 0 Step 0b**, present it for confirmation instead of asking from scratch: `"I found: {value}. Is this correct? (y/n/edit)"`
+- Offer 2-3 suggested answers plus "Type your own" option for undiscovered values
 - Maximum 5 questions per section
 - Update `setup_state.json` after each successful step
 - Validate file writes succeeded before continuing
@@ -225,6 +264,11 @@ Initialize or resume Kiloforge project setup. This command creates foundational 
 **Q1: Project Name**
 
 ```
+[If discovered]: I found your project name is "{name}" (from {source}). Is this correct?
+  1. Yes
+  2. Change to something else
+
+[If not discovered]:
 What is your project name?
 
 Suggested:
@@ -236,6 +280,13 @@ Suggested:
 **Q2: Project Description**
 
 ```
+[If discovered]: From your README, the project description appears to be:
+  "{description}"
+  Is this correct?
+  1. Yes
+  2. Edit
+
+[If not discovered]:
 Describe your project in one sentence.
 
 Suggested:
@@ -247,6 +298,13 @@ Suggested:
 **Q3: Problem Statement**
 
 ```
+[If discovered from README/PRD]: I found this problem statement:
+  "{problem}"
+  Is this correct?
+  1. Yes
+  2. Edit
+
+[If not discovered]:
 What problem does this project solve?
 
 Suggested:
@@ -258,6 +316,11 @@ Suggested:
 **Q4: Target Users**
 
 ```
+[If discovered]: Target users appear to be: {users}. Correct?
+  1. Yes
+  2. Edit
+
+[If not discovered]:
 Who are the primary users?
 
 Suggested:
@@ -270,6 +333,11 @@ Suggested:
 **Q5: Key Goals (optional)**
 
 ```
+[If discovered from README/roadmap]: I found these goals:
+  {goals}
+  Are these correct? (y/n/edit)
+
+[If not discovered]:
 What are 2-3 key goals for this project? (Press enter to skip)
 ```
 
@@ -302,18 +370,34 @@ Suggested:
 
 ### Section 3: Tech Stack (max 5 questions)
 
-For **brownfield projects**, first analyze existing code:
+For **brownfield projects**, present the discovered tech stack for confirmation before asking additional questions.
 
-- Run `Glob` to find package.json, requirements.txt, go.mod, Cargo.toml, etc.
-- Parse detected files to pre-populate tech stack
-- Present findings and ask for confirmation/additions
+```
+[If brownfield with discoveries]:
+I analyzed your codebase and found:
+
+  Languages:      {languages}
+  Frontend:       {frontend or "none detected"}
+  Backend:        {backend or "none detected"}
+  Database:       {database or "none detected"}
+  Infrastructure: {infra or "none detected"}
+
+Is this correct? What would you like to change?
+  1. Looks good, continue
+  2. Let me make corrections (specify what to change)
+```
+
+**Only ask individual questions for values NOT discovered.** Skip questions where discovery found clear answers and the user confirmed them.
 
 **Q1: Primary Language(s)**
 
 ```
-What primary language(s) does this project use?
+[If discovered]: I detected: {languages}. Correct?
+  1. Yes
+  2. Edit
 
-[For brownfield: "I detected: Python 3.11, JavaScript. Is this correct?"]
+[If not discovered]:
+What primary language(s) does this project use?
 
 Suggested:
 1. TypeScript
@@ -326,6 +410,9 @@ Suggested:
 **Q2: Frontend Framework (if applicable)**
 
 ```
+[If discovered]: I detected {framework} from {source}. Correct?
+
+[If not discovered]:
 What frontend framework (if any)?
 
 Suggested:
@@ -339,6 +426,9 @@ Suggested:
 **Q3: Backend Framework (if applicable)**
 
 ```
+[If discovered]: I detected {framework} from {source}. Correct?
+
+[If not discovered]:
 What backend framework (if any)?
 
 Suggested:
@@ -352,6 +442,9 @@ Suggested:
 **Q4: Database (if applicable)**
 
 ```
+[If discovered]: I detected {database} from {source}. Correct?
+
+[If not discovered]:
 What database (if any)?
 
 Suggested:
@@ -365,6 +458,9 @@ Suggested:
 **Q5: Infrastructure**
 
 ```
+[If discovered]: I detected {infra} from {source}. Correct?
+
+[If not discovered]:
 Where will this be deployed?
 
 Suggested:
@@ -377,20 +473,17 @@ Suggested:
 
 ### Section 4: Workflow Preferences (max 2 questions)
 
-**Q1: TDD Strictness**
+**TDD is strict by default.** Do not ask about TDD strictness — it is always set to strict. This will be confirmed at the end during the review step.
+
+**Q1: Commit Strategy**
 
 ```
-How strictly should TDD be enforced?
+[If discovered from CONTRIBUTING.md or recent git log]:
+I detected you use {convention} commits. Keep this?
+  1. Yes
+  2. Change
 
-Suggested:
-1. Strict - tests required before implementation (highly recommended for fully autonomous agents)
-2. Moderate - tests encouraged, not blocked
-3. Flexible - tests recommended for complex logic
-```
-
-**Q2: Commit Strategy**
-
-```
+[If not discovered]:
 What commit strategy should be followed?
 
 Suggested:
@@ -403,6 +496,7 @@ Suggested:
 
 The following are set automatically and do not require user input:
 
+- **TDD**: Strict — tests required before implementation
 - **Code review**: Optional / self-review OK
 - **Verification checkpoints**: Track completion only — manual verification is required only when an entire track is complete. Individual phases and tasks do not require manual sign-off.
 
@@ -427,9 +521,7 @@ Options:
 **Q2: Existing Conventions**
 
 ```
-Do you have existing linting/formatting configs to incorporate?
-
-[For brownfield: "I found .eslintrc, .prettierrc. Should I incorporate these?"]
+[For brownfield]: I found {configs}. Should I incorporate these?
 
 Suggested:
 1. Yes, use existing configs
@@ -437,7 +529,40 @@ Suggested:
 3. Skip this step
 ```
 
-## Artifact Generation
+## Phase 3: Confirmation
+
+**Before generating artifacts**, present a summary of all collected information for the user to review and confirm:
+
+```
+Here's what I've gathered for your project:
+
+  Project:       {name}
+  Description:   {description}
+  Problem:       {problem}
+  Users:         {users}
+  Goals:         {goals}
+
+  Tech Stack:
+    Languages:      {languages}
+    Frontend:       {frontend}
+    Backend:        {backend}
+    Database:       {database}
+    Infrastructure: {infrastructure}
+
+  Workflow:
+    TDD:          Strict (tests required before implementation)
+    Commits:      {commit_strategy}
+
+  Style Guides:  {languages to generate}
+
+Does this look correct? Any changes?
+  1. Looks good, generate artifacts
+  2. I'd like to change something (specify)
+```
+
+This is where the user can override TDD strictness or any other value if they specifically want to. Only change if the user explicitly requests it.
+
+## Phase 4: Artifact Generation
 
 After completing Q&A, populate the metadata files that were scaffolded by `kf-install.py` in the pre-flight step. The scaffolding already created empty templates — this step fills them with the user's answers.
 
@@ -464,7 +589,7 @@ Populate with Q&A answers: languages, frameworks, database, infrastructure, depe
 
 ### 5. .agent/kf/workflow.yaml
 
-Populate with Q&A answers: TDD strictness, commit strategy. Defaults (not asked): code review = optional, verification = track completion only.
+Populate with: TDD = strict, commit strategy from Q&A. Defaults: code review = optional, verification = track completion only.
 
 ### 6. .agent/kf/code_styleguides/
 
