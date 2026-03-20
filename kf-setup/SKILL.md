@@ -229,11 +229,12 @@ Store all discovered information in a `_discovery` dict for use during Q&A. This
      --primary-branch "{primary_branch from step 1}"
    ```
 
-   This creates the full `.agent/kf/` structure in one call:
-   - Project-local venv at `.agent/kf/.venv` with PyYAML
-   - `.agent/kf/.gitignore` with `.venv` and `__pycache__/` entries
-   - Empty metadata files (config, product, tech-stack, workflow, tracks, deps, conflicts)
-   - CLI tools in `.agent/kf/bin/` with shebangs rewritten to use the venv
+   This sets up global tools and per-project metadata in one call:
+   - Global venv at `~/.kf/.venv` with PyYAML
+   - Global CLI tools at `~/.kf/bin/` with shebangs pointing to the venv
+   - `.agent/kf/.gitignore` with `__pycache__/` entries
+   - Empty metadata files (config, product, tech-stack, workflow)
+   - Version file at `~/.kf/VERSION`
 
    Existing metadata files are never overwritten — safe to re-run.
 

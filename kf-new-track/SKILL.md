@@ -30,7 +30,7 @@ Create a new track (feature, bug fix, chore, or refactor) with a detailed specif
 
 1. Run pre-flight check:
    ```bash
-   eval "$(.agent/kf/bin/kf-preflight.py)"
+   eval "$(~/.kf/bin/kf-preflight.py)"
    ```
    This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
 
@@ -319,13 +319,13 @@ After plan approval:
 3. Register in `.agent/kf/tracks.yaml`:
 
    ```bash
-   .agent/kf/bin/kf-track.py add {trackId} --title "{title}" --type {type}
+   ~/.kf/bin/kf-track.py add {trackId} --title "{title}" --type {type}
    ```
 
 4. If the track has dependencies on other tracks, register them:
 
    ```bash
-   .agent/kf/bin/kf-track.py deps add {trackId} {dep-id}
+   ~/.kf/bin/kf-track.py deps add {trackId} {dep-id}
    ```
 
 ## Completion Message

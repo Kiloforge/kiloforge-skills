@@ -29,7 +29,7 @@ Reports are written to `.agent/kf/_reports/` as markdown files.
 
 1. **Run pre-flight check:**
    ```bash
-   eval "$(.agent/kf/bin/kf-preflight.py)"
+   eval "$(~/.kf/bin/kf-preflight.py)"
    ```
    This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
 
@@ -239,17 +239,17 @@ Group into phases with: name, date range, bullet-point highlights, commit count.
 
 **Step 4:** For active/pending tracks, query progress via CLI:
 ```bash
-.agent/kf/bin/kf-track.py list --active --json
-.agent/kf/bin/kf-track-content.py progress {trackId}
+~/.kf/bin/kf-track.py list --active --json
+~/.kf/bin/kf-track-content.py progress {trackId}
 ```
 
 **Step 5:** Detect blockers — check dependency graph via CLI:
 ```bash
-.agent/kf/bin/kf-track.py deps list
+~/.kf/bin/kf-track.py deps list
 ```
 Also scan track specs for `BLOCKED:`, `depends on`, `dependency` keywords:
 ```bash
-.agent/kf/bin/kf-track-content.py show {trackId} --section spec
+~/.kf/bin/kf-track-content.py show {trackId} --section spec
 ```
 
 ### Output Template
@@ -610,7 +610,7 @@ After writing report files, merge them to the primary branch so all worktrees ca
 ### Step 1 — Resolve primary branch and record home branch
 
 ```bash
-PRIMARY_BRANCH=$(.agent/kf/bin/kf-primary-branch.py)
+PRIMARY_BRANCH=$(~/.kf/bin/kf-primary-branch.py)
 HOME_BRANCH=$(git branch --show-current)
 MAIN_WORKTREE=$(git worktree list | grep -E '\['"$PRIMARY_BRANCH"'\]' | awk '{print $1}')
 ```
@@ -644,7 +644,7 @@ git branch -d "$REPORT_BRANCH"
 Use the shared `kf-merge` script for the full lock → rebase → merge → release protocol. Reports are a **metadata merge** (no verification needed), with `--conflict-strategy ours` since new reports should overwrite old ones:
 
 ```bash
-.agent/kf/bin/kf-merge.py \
+~/.kf/bin/kf-merge.py \
   --holder "$(basename $(pwd))" \
   --timeout 300 \
   --conflict-strategy ours \

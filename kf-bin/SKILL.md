@@ -5,7 +5,7 @@ description: List available Kiloforge CLI tools with usage and descriptions. Onl
 
 # Kiloforge CLI Tools
 
-Display available CLI tools installed to `.agent/kf/bin/` during project setup.
+Display available CLI tools installed to `~/.kf/bin/` during project setup.
 
 ## Use this skill when
 
@@ -14,34 +14,34 @@ Display available CLI tools installed to `.agent/kf/bin/` during project setup.
 
 ## Runtime Environment
 
-All CLI tools are Python scripts that require the Kiloforge virtual environment at `.agent/kf/.venv`. This venv is created automatically during `/kf-setup` and contains Python 3 with PyYAML.
+All CLI tools are Python scripts that require the Kiloforge virtual environment at `~/.kf/.venv`. This venv is created automatically during `/kf-setup` and contains Python 3 with PyYAML.
 
-**IMPORTANT: NEVER install packages globally.** Do not use `pip install`, `pip3 install`, or `--break-system-packages`. All dependencies are installed into the project-local venv only. If the venv is missing, `kf-preflight.py` will auto-create it.
+**IMPORTANT: NEVER install packages globally.** Do not use `pip install`, `pip3 install`, or `--break-system-packages`. All dependencies are installed into the `~/.kf/.venv` venv only. If the venv is missing, `kf-preflight.py` will auto-create it.
 
-**Running scripts:** The venv is activated via `kf-preflight.py`, which every skill evals at startup. This puts `.venv/bin/python` on PATH so all scripts (which use `#!/usr/bin/env python3`) pick up the correct interpreter:
+**Running scripts:** The venv is activated via `kf-preflight.py`, which every skill evals at startup. This puts `~/.kf/.venv/bin/python` on PATH so all scripts pick up the correct interpreter:
 
 ```bash
 # Preflight activates the venv and sets PRIMARY_BRANCH
-eval "$(.agent/kf/bin/kf-preflight.py)"
+eval "$(~/.kf/bin/kf-preflight.py)"
 
 # All subsequent script calls use the venv automatically
-.agent/kf/bin/kf-track.py list --active
+~/.kf/bin/kf-track.py list --active
 ```
 
 **If running scripts outside of a skill** (e.g., manual testing), activate the venv first:
 
 ```bash
-source .agent/kf/.venv/bin/activate && .agent/kf/bin/kf-conductor.py status
+source ~/.kf/.venv/bin/activate && ~/.kf/bin/kf-conductor.py status
 ```
 
 **If the venv is missing or broken**, restore it:
 
 ```bash
 # Create venv (skip if it exists)
-python3 -m venv .agent/kf/.venv
+python3 -m venv ~/.kf/.venv
 
 # Install dependencies
-.agent/kf/.venv/bin/pip install pyyaml
+~/.kf/.venv/bin/pip install pyyaml
 ```
 
 For detailed platform-specific installation instructions (macOS, Linux, Windows), see `references/python-setup.md`.
@@ -68,7 +68,7 @@ For detailed platform-specific installation instructions (macOS, Linux, Windows)
 When invoked, display the tools table above. If a tool name is provided as an argument, show its usage by running:
 
 ```bash
-.agent/kf/bin/{tool}.py --help
+~/.kf/bin/{tool}.py --help
 ```
 
 If tools are not installed, suggest running `/kf-setup`.

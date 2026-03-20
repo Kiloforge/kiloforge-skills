@@ -33,7 +33,7 @@ This advisor runs inside an existing, initialized Kiloforge project. It uses the
 
 1. **Run pre-flight check:**
    ```bash
-   eval "$(.agent/kf/bin/kf-preflight.py)"
+   eval "$(~/.kf/bin/kf-preflight.py)"
    ```
    This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
 

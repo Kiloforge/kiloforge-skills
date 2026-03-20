@@ -1,11 +1,11 @@
 ---
 name: kf-update
-description: Update Kiloforge skill definitions and project CLI tools from the latest release
+description: Update Kiloforge skill definitions and CLI tools from the latest release
 ---
 
 # Kiloforge Update
 
-Update skill definitions in `~/.claude/skills/` and CLI tools in `.agent/kf/bin/` from the latest GitHub release.
+Update skill definitions in `~/.claude/skills/` and CLI tools in `~/.kf/bin/` from the latest GitHub release.
 
 ## Use this skill when
 
@@ -22,10 +22,10 @@ Update skill definitions in `~/.claude/skills/` and CLI tools in `.agent/kf/bin/
 
 ### Step 1 — Verify Kiloforge is initialized
 
-Check that `.agent/kf/bin/` exists:
+Check that `~/.kf/bin/` exists:
 
 ```bash
-ls .agent/kf/bin/*.py
+ls ~/.kf/bin/*.py
 ```
 
 If not found, suggest `/kf-setup` instead. **HALT.**
@@ -36,8 +36,8 @@ Check the installed version:
 
 ```bash
 CURRENT_VERSION=""
-if [ -f .agent/kf/VERSION ]; then
-  CURRENT_VERSION=$(cat .agent/kf/VERSION)
+if [ -f ~/.kf/VERSION ]; then
+  CURRENT_VERSION=$(cat ~/.kf/VERSION)
 fi
 echo "Installed: ${CURRENT_VERSION:-unknown}"
 ```
@@ -72,39 +72,42 @@ If the clone fails, **HALT** — the update cannot proceed without the release s
 ### Step 4 — Run the install script in update mode
 
 ```bash
-python3 "$KF_TMPDIR/kiloforge-skills/kf-bin/scripts/kf-install.py" --update --project-dir "$(pwd)"
+python3 "$KF_TMPDIR/kiloforge-skills/kf-bin/scripts/kf-install.py" --update
 ```
 
-This replaces skill definitions in `~/.claude/skills/`, CLI scripts in `.agent/kf/bin/`, updates `.gitignore`, and cleans up legacy scripts.
+This replaces:
+- Skill definitions in `~/.claude/skills/`
+- CLI scripts in `~/.kf/bin/`
+- Writes `~/.kf/VERSION` with the installed version
 
-### Step 4b — Record installed version
+No per-project changes are made in update mode.
 
-```bash
-echo "$LATEST_VERSION" > .agent/kf/VERSION
-```
-
-### Step 4c — Clean up
+### Step 4b — Clean up
 
 ```bash
 rm -rf "$KF_TMPDIR"
 ```
 
-### Step 5 — Commit and merge to primary branch
+### Step 5 — Run per-project migrations (if needed)
 
-The updated scripts, `.gitignore`, and `VERSION` must be committed and merged to the primary branch so all worktrees see them.
+If the current project has legacy per-project bin files at `.agent/kf/bin/`, clean them up:
 
 ```bash
-git add .agent/kf/bin/ .agent/kf/.gitignore .agent/kf/VERSION
-git diff --cached --quiet || git commit -m "chore(kf): update kiloforge to $LATEST_TAG"
+if [ -d .agent/kf/bin ]; then
+  echo "Cleaning legacy per-project bin directory..."
+  rm -rf .agent/kf/bin
+  git add -A .agent/kf/bin
+  git diff --cached --quiet || git commit -m "chore(kf): remove legacy per-project bin/ (now global at ~/.kf/)"
+fi
 ```
 
 If running from a worktree (not the primary branch), merge using the standard protocol:
 
 ```bash
 CURRENT_BRANCH=$(git branch --show-current)
-PRIMARY_BRANCH=$(.agent/kf/bin/kf-primary-branch.py 2>/dev/null || echo "main")
+PRIMARY_BRANCH=$(~/.kf/bin/kf-primary-branch.py 2>/dev/null || echo "main")
 if [ "$CURRENT_BRANCH" != "$PRIMARY_BRANCH" ]; then
-  .agent/kf/bin/kf-merge.py --holder "$(basename $(pwd))" --timeout 0
+  ~/.kf/bin/kf-merge.py --holder "$(basename $(pwd))" --timeout 0
 fi
 ```
 
@@ -117,5 +120,5 @@ Show the output from `kf-install.py` — it reports which skills were added/upda
 Report the version change:
 
 ```
-Updated: ${CURRENT_VERSION:-unknown} → $LATEST_VERSION ($LATEST_TAG)
+Updated: ${CURRENT_VERSION:-unknown} -> $LATEST_VERSION ($LATEST_TAG)
 ```

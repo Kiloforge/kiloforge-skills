@@ -25,7 +25,7 @@ Manage the complete track lifecycle including archiving, restoring, deleting, re
 
 1. Run pre-flight check:
    ```bash
-   eval "$(.agent/kf/bin/kf-preflight.py)"
+   eval "$(~/.kf/bin/kf-preflight.py)"
    ```
    This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
 
@@ -33,7 +33,7 @@ Manage the complete track lifecycle including archiving, restoring, deleting, re
 
 - Determine the operation mode from arguments or interactive prompts.
 - Confirm destructive actions (delete/cleanup) before applying.
-- Use `.agent/kf/bin/kf-track.py` CLI to update `tracks.yaml` and track metadata consistently.
+- Use `~/.kf/bin/kf-track.py` CLI to update `tracks.yaml` and track metadata consistently.
 - If detailed steps are required, open `resources/implementation-playbook.md`.
 
 ## Safety

@@ -29,7 +29,7 @@ Execute tasks from a track's implementation plan, following the workflow rules d
 
 1. **Run pre-flight check:**
    ```bash
-   eval "$(.agent/kf/bin/kf-preflight.py)"
+   eval "$(~/.kf/bin/kf-preflight.py)"
    ```
    This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
 
@@ -45,7 +45,7 @@ Execute tasks from a track's implementation plan, following the workflow rules d
 
 - Validate track exists:
   ```bash
-  .agent/kf/bin/kf-track.py get {argument}
+  ~/.kf/bin/kf-track.py get {argument}
   ```
 - If not found: Search for partial matches, suggest corrections
 
@@ -53,7 +53,7 @@ Execute tasks from a track's implementation plan, following the workflow rules d
 
 1. List available tracks:
    ```bash
-   .agent/kf/bin/kf-track.py list --active
+   ~/.kf/bin/kf-track.py list --active
    ```
 2. Display selection menu:
 
@@ -76,9 +76,9 @@ Load all relevant context for implementation:
 
 1. Track documents (via CLI):
    ```bash
-   .agent/kf/bin/kf-track-content.py show {trackId} --section spec
-   .agent/kf/bin/kf-track-content.py show {trackId} --section plan
-   .agent/kf/bin/kf-track-content.py progress {trackId}
+   ~/.kf/bin/kf-track-content.py show {trackId} --section spec
+   ~/.kf/bin/kf-track-content.py show {trackId} --section plan
+   ~/.kf/bin/kf-track-content.py progress {trackId}
    ```
 
 2. Project context:
@@ -94,18 +94,18 @@ Load all relevant context for implementation:
 Update track to in-progress:
 
 ```bash
-.agent/kf/bin/kf-track.py update {trackId} --status in-progress
+~/.kf/bin/kf-track.py update {trackId} --status in-progress
 ```
 
 ## Task Execution Loop
 
-For each incomplete task (check via `.agent/kf/bin/kf-track-content.py progress {trackId}`):
+For each incomplete task (check via `~/.kf/bin/kf-track-content.py progress {trackId}`):
 
 ### 1. Task Identification
 
 Find the next incomplete task:
 ```bash
-.agent/kf/bin/kf-track-content.py progress {trackId}
+~/.kf/bin/kf-track-content.py progress {trackId}
 ```
 
 Look for the first task not yet marked done.
@@ -166,7 +166,7 @@ git commit -m "{commit_prefix}: {task description} ({trackId})"
 **Mark task done via CLI:**
 
 ```bash
-.agent/kf/bin/kf-track-content.py task {trackId} X.Y --done
+~/.kf/bin/kf-track-content.py task {trackId} X.Y --done
 ```
 
 Commit the track update:
@@ -181,7 +181,7 @@ git commit -m "chore: mark task X.Y complete ({trackId})"
 After each task, check if phase is complete:
 
 ```bash
-.agent/kf/bin/kf-track-content.py progress {trackId}
+~/.kf/bin/kf-track-content.py progress {trackId}
 ```
 
 If all tasks in current phase are done:
@@ -275,12 +275,12 @@ All tasks complete. Running final verification...
 ### 2. Update Track Status
 
 ```bash
-.agent/kf/bin/kf-track.py update {trackId} --status completed
+~/.kf/bin/kf-track.py update {trackId} --status completed
 ```
 
 Verify completion:
 ```bash
-.agent/kf/bin/kf-track-content.py progress {trackId}
+~/.kf/bin/kf-track-content.py progress {trackId}
 ```
 
 ### 3. Documentation Sync Offer
@@ -331,7 +331,7 @@ If implementation is paused and resumed:
 
 1. Check current progress:
    ```bash
-   .agent/kf/bin/kf-track-content.py progress {trackId}
+   ~/.kf/bin/kf-track-content.py progress {trackId}
    ```
 2. Find current incomplete task
 3. Ask user:

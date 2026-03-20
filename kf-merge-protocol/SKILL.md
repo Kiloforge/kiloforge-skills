@@ -17,7 +17,7 @@ This skill is a reference document. It is embedded by:
 
 ## The `kf-merge` Script
 
-All merge operations use `.agent/kf/bin/kf-merge.py`, which encapsulates the full protocol. Skills should call this script instead of implementing merge logic inline.
+All merge operations use `~/.kf/bin/kf-merge.py`, which encapsulates the full protocol. Skills should call this script instead of implementing merge logic inline.
 
 ## Two Merge Flows
 
@@ -29,8 +29,8 @@ Track content (unique per-track directories) is committed first. Then a single l
 
 ```bash
 # Architect: commit track content first, then single lock window for everything else
-.agent/kf/bin/kf-merge.py --holder architect-1 --timeout 0 \
-  --registry-cmd ".agent/kf/bin/kf-track.py add X --title '...' --type feature"
+~/.kf/bin/kf-merge.py --holder architect-1 --timeout 0 \
+  --registry-cmd "~/.kf/bin/kf-track.py add X --title '...' --type feature"
 ```
 
 **Steps:** lock → rebase → registry update → commit → ff-merge → release
@@ -38,7 +38,7 @@ Track content (unique per-track directories) is committed first. Then a single l
 For **kf-report** (no registry update needed):
 
 ```bash
-.agent/kf/bin/kf-merge.py --holder report-1 --timeout 0
+~/.kf/bin/kf-merge.py --holder report-1 --timeout 0
 ```
 
 **Steps:** lock → rebase → merge → release
@@ -52,11 +52,11 @@ Used by **kf-developer** — changes include source code, tests, and configurati
 make test && make build && make lint
 
 # Then merge with post-rebase verification
-.agent/kf/bin/kf-merge.py \
+~/.kf/bin/kf-merge.py \
   --holder developer-1 \
   --timeout 300 \
   --verify "make test && make build && make lint" \
-  --reapply ".agent/kf/bin/kf-track.py update {trackId} --status completed" \
+  --reapply "~/.kf/bin/kf-track.py update {trackId} --status completed" \
   --cleanup-branch feature/{trackId}
 ```
 
@@ -67,7 +67,7 @@ make test && make build && make lint
 ### Step 1 — Resolve primary branch
 
 ```bash
-PRIMARY_BRANCH=$(.agent/kf/bin/kf-primary-branch.py)
+PRIMARY_BRANCH=$(~/.kf/bin/kf-primary-branch.py)
 ```
 
 ### Step 2 — Locate primary branch worktree
@@ -85,7 +85,7 @@ Uses `kf-merge-lock` which supports dual-mode acquisition:
 - **mkdir mode** — fallback when orchestrator is unreachable. Uses `$(git rev-parse --git-common-dir)/merge.lock`.
 
 ```bash
-.agent/kf/bin/kf-merge-lock.py acquire --timeout <seconds>
+~/.kf/bin/kf-merge-lock.py acquire --timeout <seconds>
 ```
 
 - `--timeout 0` — fail immediately if held (for architects, non-blocking)
@@ -97,7 +97,7 @@ Uses `kf-merge-lock` which supports dual-mode acquisition:
 
 Keeps the lock alive during the merge window:
 ```bash
-while true; do .agent/kf/bin/kf-merge-lock.py heartbeat; sleep 30; done &
+while true; do ~/.kf/bin/kf-merge-lock.py heartbeat; sleep 30; done &
 ```
 
 ### Step 5 — Rebase onto primary branch
@@ -119,10 +119,10 @@ git rebase --continue
 Then re-apply via CLI (the `--reapply` command):
 ```bash
 # Architect: re-register new tracks
-.agent/kf/bin/kf-track.py add <id> --title "..." --type <type>
+~/.kf/bin/kf-track.py add <id> --title "..." --type <type>
 
 # Developer: re-mark track complete
-.agent/kf/bin/kf-track.py update {trackId} --status completed
+~/.kf/bin/kf-track.py update {trackId} --status completed
 ```
 
 **For non-state file conflicts** (source code): the lock stays held. The agent must resolve the conflicts manually, `git add` the resolved files, `git rebase --continue`, and then proceed with the merge. The lock is only released after the merge completes (or the agent explicitly aborts with `git rebase --abort && kf-merge-lock release`). This prevents other workers from merging in between and causing cascading conflicts.

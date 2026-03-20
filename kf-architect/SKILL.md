@@ -73,7 +73,7 @@ The main worktree is a merge target only — no agent should ever checkout branc
 ### Step 1 — Run pre-flight check
 
 ```bash
-eval "$(.agent/kf/bin/kf-preflight.py)"
+eval "$(~/.kf/bin/kf-preflight.py)"
 ```
 
 This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
@@ -98,9 +98,9 @@ Read all of these (from the working tree, which is now at the latest primary bra
 1. **Product context:** `.agent/kf/product.yaml`
 2. **Product guidelines:** `.agent/kf/product-guidelines.yaml` (if exists)
 3. **Tech stack:** `.agent/kf/tech-stack.yaml`
-4. **Project index:** Run `.agent/kf/bin/kf-track.py index --ref ${PRIMARY_BRANCH}` (generated summary of all tracks)
-5. **Quick links:** Run `.agent/kf/bin/kf-track.py quick-links show --ref ${PRIMARY_BRANCH}` (navigation links)
-6. **Track states:** Run `.agent/kf/bin/kf-track.py list --ref ${PRIMARY_BRANCH}` to query track registry
+4. **Project index:** Run `~/.kf/bin/kf-track.py index` (generated summary of all tracks)
+5. **Quick links:** Run `~/.kf/bin/kf-track.py quick-links show` (navigation links)
+6. **Track states:** `.agent/kf/tracks.yaml` (YAML registry — use `~/.kf/bin/kf-track.py list` to query)
 7. **Dependency graph:** `.agent/kf/tracks/deps.yaml` (adjacency list of track dependencies)
 8. **Code style guides:** `.agent/kf/code_styleguides/` (all files, if present)
 
@@ -194,7 +194,7 @@ Before generating specs, assess the **full dependency graph** — not just betwe
 
 **Prefer subagents for this analysis when available.** If the Agent tool is available, spawn a subagent for each pending/in-progress track to check file and package overlaps in parallel. This is mechanical work (reading specs, checking import paths, comparing file lists) that doesn't require the primary model's full reasoning. The subagent should return a brief structured report: `{trackId, overlapping_files[], overlapping_packages[], conflict_level: high|medium|low, notes}`. If subagents are not available, perform the same analysis directly — the assessment is mandatory regardless of tooling.
 
-1. **Query active tracks** — run `.agent/kf/bin/kf-track.py list --active --ref ${PRIMARY_BRANCH}` to identify all pending and in-progress tracks, and read dependency edges via `git show ${PRIMARY_BRANCH}:.agent/kf/tracks/deps.yaml`
+1. **Query active tracks** — run `~/.kf/bin/kf-track.py list --active --ref ${PRIMARY_BRANCH}` to identify all pending and in-progress tracks, and read dependency edges via `git show ${PRIMARY_BRANCH}:.agent/kf/tracks/deps.yaml`
 2. **For each pending/in-progress track**, spawn a subagent to check if the new work:
    - **Touches the same files or packages** → the new track either blocks or is blocked by the existing one
    - **Renames, moves, or restructures code** the existing track depends on → the new track **blocks** the existing track (or vice versa)
@@ -223,15 +223,15 @@ Use `kf-track init` to create the track scaffold, then populate spec/plan via CL
 
 ```bash
 # 1. Create the track scaffold
-.agent/kf/bin/kf-track-content.py init {trackId} --title "{title}" --type {type} --summary "{1-2 sentence summary}"
+~/.kf/bin/kf-track-content.py init {trackId} --title "{title}" --type {type} --summary "{1-2 sentence summary}"
 
 # 2. Set spec fields
-.agent/kf/bin/kf-track-content.py spec {trackId} --field context --set "{context text}"
-.agent/kf/bin/kf-track-content.py spec {trackId} --field codebase_analysis --set "{analysis text}"
-.agent/kf/bin/kf-track-content.py spec {trackId} --field out_of_scope --set "{exclusions}"
-.agent/kf/bin/kf-track-content.py spec {trackId} --field technical_notes --set "{approach}"
-.agent/kf/bin/kf-track-content.py spec {trackId} --field acceptance_criteria --append "Criterion 1"
-.agent/kf/bin/kf-track-content.py spec {trackId} --field acceptance_criteria --append "Criterion 2"
+~/.kf/bin/kf-track-content.py spec {trackId} --field context --set "{context text}"
+~/.kf/bin/kf-track-content.py spec {trackId} --field codebase_analysis --set "{analysis text}"
+~/.kf/bin/kf-track-content.py spec {trackId} --field out_of_scope --set "{exclusions}"
+~/.kf/bin/kf-track-content.py spec {trackId} --field technical_notes --set "{approach}"
+~/.kf/bin/kf-track-content.py spec {trackId} --field acceptance_criteria --append "Criterion 1"
+~/.kf/bin/kf-track-content.py spec {trackId} --field acceptance_criteria --append "Criterion 2"
 ```
 
 Alternatively, you may write `track.yaml` directly as a structured YAML file. The canonical schema:
@@ -466,12 +466,12 @@ For the full merge protocol details, see `kf-merge-protocol/SKILL.md`.
 # Build the registry command for all new tracks in this batch
 REGISTRY_CMD=""
 for track in {list of new track IDs}; do
-  REGISTRY_CMD="$REGISTRY_CMD; .agent/kf/bin/kf-track.py add $track --title '...' --type ... --deps '...'"
+  REGISTRY_CMD="$REGISTRY_CMD; ~/.kf/bin/kf-track.py add $track --title '...' --type ... --deps '...'"
 done
 # Add conflict pairs if identified
-REGISTRY_CMD="$REGISTRY_CMD; .agent/kf/bin/kf-track.py conflicts add {a} {b} {risk} 'reason'"
+REGISTRY_CMD="$REGISTRY_CMD; ~/.kf/bin/kf-track.py conflicts add {a} {b} {risk} 'reason'"
 
-.agent/kf/bin/kf-merge.py \
+~/.kf/bin/kf-merge.py \
   --holder "$(basename $(pwd))" \
   --timeout 0 \
   --registry-cmd "$REGISTRY_CMD"

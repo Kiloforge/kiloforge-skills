@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
 """kf-install — Initialize a Kiloforge project or update its CLI tools.
 
-Sets up the full .agent/kf/ directory structure: venv, CLI tools, and
-empty metadata scaffolding. Existing metadata files are never overwritten.
+Sets up:
+  - Global venv at ~/.kf/.venv/ with PyYAML
+  - Global CLI tools at ~/.kf/bin/
+  - Per-project .agent/kf/ metadata scaffolding (empty files, never overwritten)
+  - Skill definitions in ~/.claude/skills/
 
 USAGE:
     kf-install [OPTIONS]
-    kf-install --update    # Update skills + CLI tools only (skip scaffolding)
+    kf-install --update    # Update global ~/.kf/ and ~/.claude/skills/ only
 
 OPTIONS:
     --project-dir DIR    Target project root (default: cwd)
     --skills-dir DIR     Path to kiloforge-skills repo (default: auto-detect)
     --skills-target DIR  Where to install skill definitions (default: ~/.claude/skills)
-    --update             Update mode: replace skills + scripts (skip venv/metadata)
+    --update             Update mode: replace skills + scripts (skip per-project metadata)
     --skip-venv          Skip venv creation/update
     --primary-branch B   Primary branch name for config.yaml (default: main)
 
@@ -27,6 +30,9 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+
+# Global install directory
+KF_HOME = Path.home() / ".kf"
 
 # Scripts that were renamed to .py — clean up old versions
 LEGACY_NAMES = [
@@ -101,9 +107,9 @@ def validate_skills_dir(skills_dir: Path):
         sys.exit(1)
 
 
-def ensure_venv(project_dir: Path) -> Path:
-    """Create or update the project-local venv at .agent/kf/.venv."""
-    venv_dir = project_dir / ".agent" / "kf" / ".venv"
+def ensure_venv() -> Path:
+    """Create or update the global venv at ~/.kf/.venv."""
+    venv_dir = KF_HOME / ".venv"
 
     if not venv_dir.is_dir():
         print(f"Creating venv at {venv_dir}...")
@@ -145,11 +151,11 @@ def ensure_venv(project_dir: Path) -> Path:
 
 
 def ensure_gitignore(project_dir: Path):
-    """Ensure .agent/kf/.gitignore contains .venv entry."""
+    """Ensure .agent/kf/.gitignore contains __pycache__ entries."""
     gitignore = project_dir / ".agent" / "kf" / ".gitignore"
     gitignore.parent.mkdir(parents=True, exist_ok=True)
 
-    entries_needed = [".venv", "__pycache__/", "*.pyc"]
+    entries_needed = ["__pycache__/", "*.pyc"]
     existing = set()
     if gitignore.exists():
         existing = set(gitignore.read_text().splitlines())
@@ -253,10 +259,10 @@ def scaffold_metadata(project_dir: Path, primary_branch: str) -> list[str]:
     return created
 
 
-def copy_scripts(skills_dir: Path, project_dir: Path) -> list[str]:
-    """Copy CLI scripts and lib from skills repo to project .agent/kf/bin/."""
+def copy_scripts(skills_dir: Path) -> list[str]:
+    """Copy CLI scripts and lib from skills repo to ~/.kf/bin/."""
     src = skills_dir / "kf-bin" / "scripts"
-    dst = project_dir / ".agent" / "kf" / "bin"
+    dst = KF_HOME / "bin"
 
     if not src.is_dir():
         print(f"ERROR: Scripts source not found at {src}", file=sys.stderr)
@@ -323,10 +329,9 @@ def copy_skills(skills_dir: Path, skills_target: Path) -> tuple[list[str], list[
     return updated, added
 
 
-
-def clean_legacy(project_dir: Path) -> list[str]:
+def clean_legacy() -> list[str]:
     """Remove old non-.py scripts that have been superseded."""
-    bin_dir = project_dir / ".agent" / "kf" / "bin"
+    bin_dir = KF_HOME / "bin"
     removed = []
 
     for name in LEGACY_NAMES:
@@ -337,6 +342,52 @@ def clean_legacy(project_dir: Path) -> list[str]:
             removed.append(name)
 
     return removed
+
+
+def restore_shebangs() -> None:
+    """Rewrite shebangs to point to the global ~/.kf/.venv/bin/python3."""
+    bin_dir = KF_HOME / "bin"
+    if not bin_dir.is_dir():
+        return
+
+    target_shebang = f"#!{KF_HOME / '.venv' / 'bin' / 'python3'}"
+
+    for f in sorted(bin_dir.glob("*.py")):
+        text = f.read_text()
+        lines = text.split("\n", 1)
+        if lines and lines[0].startswith("#!") and "python" in lines[0]:
+            if lines[0] != target_shebang:
+                new_text = target_shebang + "\n" + (lines[1] if len(lines) > 1 else "")
+                f.write_text(new_text)
+        # Strip old injected venv activation preamble if present
+        marker_start = "# --- kf venv activation (injected by kf-install) ---"
+        marker_end = "# --- end kf venv activation ---\n"
+        if marker_start in text:
+            before = text[:text.index(marker_start)]
+            after = text[text.index(marker_end) + len(marker_end):] if marker_end in text else ""
+            f.write_text(before + after)
+
+
+def write_version(skills_dir: Path) -> str:
+    """Write the installed version to ~/.kf/VERSION."""
+    version = "unknown"
+
+    # Try to read version from the skills repo (git tag or VERSION file)
+    version_file = skills_dir / "VERSION"
+    if version_file.exists():
+        version = version_file.read_text().strip()
+    else:
+        # Try git describe
+        result = subprocess.run(
+            ["git", "-C", str(skills_dir), "describe", "--tags", "--always"],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            version = result.stdout.strip().lstrip("v")
+
+    KF_HOME.mkdir(parents=True, exist_ok=True)
+    (KF_HOME / "VERSION").write_text(version + "\n")
+    return version
 
 
 def main():
@@ -359,7 +410,7 @@ def main():
     )
     parser.add_argument(
         "--update", action="store_true",
-        help="Update mode: replace skills + scripts (skip venv/metadata)",
+        help="Update mode: replace skills + scripts (skip per-project metadata)",
     )
     parser.add_argument(
         "--skip-venv", action="store_true",
@@ -386,46 +437,44 @@ def main():
     print(f"  Kiloforge — {mode}")
     print("=" * 60)
     print(f"  Skills repo:   {skills_dir}")
-    print(f"  Project:       {project_dir}")
-    print(f"  CLI target:    {project_dir / '.agent' / 'kf' / 'bin'}")
+    if not args.update:
+        print(f"  Project:       {project_dir}")
+    print(f"  CLI target:    {KF_HOME / 'bin'}")
+    print(f"  Venv target:   {KF_HOME / '.venv'}")
     print(f"  Skills target: {skills_target}")
     print("=" * 60)
     print()
 
-    # Step 1: Venv (skip in update mode)
-    skip_venv = args.skip_venv or args.update
+    # Step 1: Venv (always global at ~/.kf/.venv)
+    skip_venv = args.skip_venv
     if not skip_venv:
-        venv_dir = ensure_venv(project_dir)
+        venv_dir = ensure_venv()
         print()
     else:
-        venv_dir = project_dir / ".agent" / "kf" / ".venv"
-        if args.update:
-            print("Update mode — skipping venv setup")
-        else:
-            print("Skipping venv setup (--skip-venv)")
+        venv_dir = KF_HOME / ".venv"
+        print("Skipping venv setup (--skip-venv)")
 
-    # Always ensure .gitignore is up to date (even in update mode)
-    ensure_gitignore(project_dir)
-
-    # Step 2: Scaffold metadata (skip in update mode)
-    if not args.update:
-        print("Scaffolding metadata files...")
-        created = scaffold_metadata(project_dir, args.primary_branch)
-        if created:
-            for name in created:
-                print(f"  created .agent/kf/{name}")
-        else:
-            print("  (all metadata files already exist)")
-        print()
-
-    # Step 3: Copy CLI scripts to project
-    print("Copying CLI scripts to .agent/kf/bin/...")
-    copied = copy_scripts(skills_dir, project_dir)
+    # Step 2: Copy CLI scripts to ~/.kf/bin/
+    print(f"Copying CLI scripts to {KF_HOME / 'bin'}...")
+    copied = copy_scripts(skills_dir)
     for name in copied:
         print(f"  {name}")
     print()
 
-    # Step 4: Copy skill definitions to user's skills folder
+    # Step 3: Restore shebangs to point to global venv
+    restore_shebangs()
+
+    # Step 4: Clean legacy scripts
+    removed = clean_legacy()
+    if removed:
+        print(f"Cleaned {len(removed)} legacy script(s):")
+        for name in removed:
+            print(f"  removed {name} (superseded by {name}.py)")
+    else:
+        print("No legacy scripts to clean")
+    print()
+
+    # Step 5: Copy skill definitions to user's skills folder
     print(f"Updating skill definitions in {skills_target}...")
     sk_updated, sk_added = copy_skills(skills_dir, skills_target)
     if sk_added:
@@ -436,34 +485,25 @@ def main():
         print("  (all skills already up to date)")
     print()
 
-    # Step 5: Restore portable shebangs (clean up any absolute venv paths from old installs)
-    bin_dir = project_dir / ".agent" / "kf" / "bin"
-    for f in sorted(bin_dir.glob("*.py")):
-        text = f.read_text()
-        lines = text.split("\n", 1)
-        if lines and lines[0].startswith("#!") and "python" in lines[0]:
-            if lines[0] != "#!/usr/bin/env python3":
-                new_text = "#!/usr/bin/env python3\n" + (lines[1] if len(lines) > 1 else "")
-                f.write_text(new_text)
-        # Strip old injected venv activation preamble if present
-        marker_start = "# --- kf venv activation (injected by kf-install) ---"
-        marker_end = "# --- end kf venv activation ---\n"
-        if marker_start in text:
-            before = text[:text.index(marker_start)]
-            after = text[text.index(marker_end) + len(marker_end):] if marker_end in text else ""
-            f.write_text(before + after)
+    # Step 6: Write version
+    version = write_version(skills_dir)
+    print(f"Installed version: {version}")
     print()
 
-    # Step 6: Clean legacy
-    removed = clean_legacy(project_dir)
-    if removed:
-        print(f"Cleaned {len(removed)} legacy script(s):")
-        for name in removed:
-            print(f"  removed {name} (superseded by {name}.py)")
-    else:
-        print("No legacy scripts to clean")
+    # Step 7: Per-project scaffolding (skip in update mode)
+    if not args.update:
+        # Ensure .gitignore is up to date
+        ensure_gitignore(project_dir)
 
-    print()
+        print("Scaffolding metadata files...")
+        created = scaffold_metadata(project_dir, args.primary_branch)
+        if created:
+            for name in created:
+                print(f"  created .agent/kf/{name}")
+        else:
+            print("  (all metadata files already exist)")
+        print()
+
     print("=" * 60)
     print(f"  {mode} complete")
     if not args.update:

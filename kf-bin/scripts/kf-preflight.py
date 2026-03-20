@@ -5,31 +5,32 @@
 # branch. Run this at the start of every kf-* skill.
 #
 # USAGE:
-#   eval "$(.agent/kf/bin/kf-preflight.py)"
+#   eval "$(~/.kf/bin/kf-preflight.py)"
 #
 # On success: prints shell commands for eval:
-#   - source .agent/kf/.venv/bin/activate  (activates venv for session)
+#   - source ~/.kf/.venv/bin/activate  (activates venv for session)
 #   - PRIMARY_BRANCH=<branch>
 #
 # On failure: prints error message to stderr and exits with code 1
 #
 # CHECKS:
-#   1. Ensures project venv exists with dependencies
+#   1. Ensures global venv exists with dependencies
 #   2. Resolves primary branch
 #   3. Verifies required metadata files exist on primary branch
-#   4. Verifies CLI tools are installed locally
+#   4. Verifies CLI tools are installed globally
 
 import os
 import subprocess
 import sys
+from pathlib import Path
 
-KF_BIN = os.path.dirname(os.path.abspath(__file__))
-KF_DIR = os.path.dirname(KF_BIN)  # .agent/kf
-VENV_DIR = os.path.join(KF_DIR, ".venv")
+KF_HOME = Path.home() / ".kf"
+KF_BIN = str(KF_HOME / "bin")
+VENV_DIR = str(KF_HOME / ".venv")
 
 
 def ensure_venv():
-    """Create project-local venv and install PyYAML if missing.
+    """Create global venv at ~/.kf/.venv and install PyYAML if missing.
 
     This is the safety net — if the venv doesn't exist or PyYAML is missing,
     fix it here so no script ever falls back to system pip.
@@ -49,7 +50,7 @@ def ensure_venv():
 
     # Create venv if missing
     if not os.path.isdir(VENV_DIR):
-        print("Creating project-local venv at .agent/kf/.venv...", file=sys.stderr)
+        print("Creating global venv at ~/.kf/.venv...", file=sys.stderr)
         result = subprocess.run(
             [sys.executable, "-m", "venv", VENV_DIR],
             capture_output=True, text=True,
@@ -63,7 +64,7 @@ def ensure_venv():
     venv_pip = os.path.join(VENV_DIR, "bin", "pip")
     if not os.path.exists(venv_pip):
         venv_pip = os.path.join(VENV_DIR, "Scripts", "pip")
-    print("Installing PyYAML into .agent/kf/.venv...", file=sys.stderr)
+    print("Installing PyYAML into ~/.kf/.venv...", file=sys.stderr)
     subprocess.run(
         [venv_pip, "install", "-q", "pyyaml"],
         capture_output=True,
@@ -126,7 +127,7 @@ def check_metadata_files(primary_branch: str) -> None:
 
 
 def check_cli_tools() -> None:
-    """Verify CLI tools are installed locally in the bin directory."""
+    """Verify CLI tools are installed globally in ~/.kf/bin/."""
     missing = []
     for tool in REQUIRED_TOOLS:
         path = os.path.join(KF_BIN, tool)
@@ -134,7 +135,7 @@ def check_cli_tools() -> None:
             missing.append(tool)
 
     if missing:
-        print("WARNING: Missing CLI tools in .agent/kf/bin/:", file=sys.stderr)
+        print("WARNING: Missing CLI tools in ~/.kf/bin/:", file=sys.stderr)
         for t in missing:
             print(f"  - {t}", file=sys.stderr)
         print("Re-run /kf-setup to install tools.", file=sys.stderr)
@@ -148,11 +149,11 @@ def main() -> None:
     check_cli_tools()
 
     # Output shell commands for eval — activates venv and sets PRIMARY_BRANCH.
-    # The venv activation puts .venv/bin/python on PATH so all kf-* scripts
-    # (which use #!/usr/bin/env python3) pick up the correct interpreter.
-    venv_activate = os.path.join(KF_DIR, ".venv", "bin", "activate")
+    # The venv activation puts ~/.kf/.venv/bin/python on PATH so all kf-* scripts
+    # (which use shebangs pointing to the global venv) pick up the correct interpreter.
+    venv_activate = os.path.join(VENV_DIR, "bin", "activate")
     if not os.path.exists(venv_activate):
-        venv_activate = os.path.join(KF_DIR, ".venv", "Scripts", "activate")
+        venv_activate = os.path.join(VENV_DIR, "Scripts", "activate")
     if os.path.exists(venv_activate):
         print(f"source {venv_activate}")
     print(f"PRIMARY_BRANCH={primary_branch}")

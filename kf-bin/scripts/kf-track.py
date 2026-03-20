@@ -37,8 +37,8 @@ from lib.tracks import TracksRegistry
 
 # --- Config ---
 SCRIPT_DIR = Path(__file__).resolve().parent
-KF_DIR = SCRIPT_DIR.parent  # scripts live in .agent/kf/bin/scripts, KF_DIR is .agent/kf
-# Legacy file paths — only referenced by migrate-meta and compact commands
+# Scripts live globally at ~/.kf/bin/; KF_DIR is the project's .agent/kf/ (resolved from cwd)
+KF_DIR = Path(os.environ["KF_DIR"]) if "KF_DIR" in os.environ else Path.cwd() / ".agent" / "kf"
 TRACKS_FILE = KF_DIR / "tracks.yaml"
 DEPS_FILE = KF_DIR / "tracks" / "deps.yaml"
 CONFLICTS_FILE = KF_DIR / "tracks" / "conflicts.yaml"

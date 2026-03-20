@@ -30,7 +30,7 @@ Revert changes by logical work unit with full git awareness. Supports reverting 
 
 1. Run pre-flight check:
    ```bash
-   eval "$(.agent/kf/bin/kf-preflight.py)"
+   eval "$(~/.kf/bin/kf-preflight.py)"
    ```
    This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
 
@@ -247,11 +247,11 @@ After successful git reverts, update track.yaml:
 
 1. For each reverted task, reset status to pending using CLI:
    ```bash
-   .agent/kf/bin/kf-track-content.py task {trackId} X.Y --undo
+   ~/.kf/bin/kf-track-content.py task {trackId} X.Y --undo
    ```
 2. Update track status in track.yaml using CLI:
    ```bash
-   .agent/kf/bin/kf-track.py update {trackId} --status pending
+   ~/.kf/bin/kf-track.py update {trackId} --status pending
    ```
 
 **Do NOT commit track.yaml changes** - they are part of the revert operation

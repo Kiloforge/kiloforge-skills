@@ -85,7 +85,7 @@ Start the persistent manager in a dedicated tmux window. It automatically dispat
 
 ```bash
 # In a dedicated tmux window:
-.agent/kf/bin/kf-conductor.py start --timeout 30
+~/.kf/bin/kf-conductor.py start --timeout 30
 ```
 
 The manager:
@@ -98,9 +98,9 @@ The manager:
 Control the manager from another tmux window:
 
 ```bash
-.agent/kf/bin/kf-conductor.py suspend   # Pause dispatching (running workers continue)
-.agent/kf/bin/kf-conductor.py resume    # Resume dispatching
-.agent/kf/bin/kf-conductor.py stop      # Graceful shutdown (finish current, no new)
+~/.kf/bin/kf-conductor.py suspend   # Pause dispatching (running workers continue)
+~/.kf/bin/kf-conductor.py resume    # Resume dispatching
+~/.kf/bin/kf-conductor.py stop      # Graceful shutdown (finish current, no new)
 ```
 
 ### One-Shot Dispatch
@@ -108,7 +108,7 @@ Control the manager from another tmux window:
 For a single dispatch cycle without the persistent loop:
 
 ```bash
-.agent/kf/bin/kf-conductor.py dispatch --timeout 30
+~/.kf/bin/kf-conductor.py dispatch --timeout 30
 ```
 
 This runs `kf-dispatch` to compute assignments, spawns workers, then exits.
@@ -118,7 +118,7 @@ This runs `kf-dispatch` to compute assignments, spawns workers, then exits.
 When `require_approval: true` is set in `.agent/kf/config.yaml`, tracks must be explicitly approved before workers can pick them up. Open the approval TUI:
 
 ```bash
-.agent/kf/bin/kf-conductor.py approve
+~/.kf/bin/kf-conductor.py approve
 ```
 
 This opens a curses-based TUI in its own tmux window with three sections:
@@ -148,8 +148,8 @@ The TUI auto-refreshes when new commits land on the primary branch (e.g., when a
 You can also approve tracks via CLI:
 
 ```bash
-.agent/kf/bin/kf-track.py approve <track-id>
-.agent/kf/bin/kf-track.py disapprove <track-id>
+~/.kf/bin/kf-track.py approve <track-id>
+~/.kf/bin/kf-track.py disapprove <track-id>
 ```
 
 ### Manual Operations
@@ -157,7 +157,7 @@ You can also approve tracks via CLI:
 #### Spawn a Single Worker
 
 ```bash
-.agent/kf/bin/kf-conductor.py spawn <worker-name> <track-id> --timeout 30
+~/.kf/bin/kf-conductor.py spawn <worker-name> <track-id> --timeout 30
 ```
 
 - `worker-name` must match an existing worktree (e.g., `kfc-a3b2c1-worker-1`)
@@ -169,13 +169,13 @@ You can also approve tracks via CLI:
 #### Check Status
 
 ```bash
-.agent/kf/bin/kf-conductor.py status
+~/.kf/bin/kf-conductor.py status
 ```
 
 Shows manager state (running/suspended/stopping/stopped) and all conductor-managed workers with state (running/completed/failed/timeout/killed) and elapsed time.
 
 ```bash
-.agent/kf/bin/kf-conductor.py status --json
+~/.kf/bin/kf-conductor.py status --json
 ```
 
 JSON output for programmatic use.
@@ -183,7 +183,7 @@ JSON output for programmatic use.
 #### Kill a Worker
 
 ```bash
-.agent/kf/bin/kf-conductor.py kill <worker-name>
+~/.kf/bin/kf-conductor.py kill <worker-name>
 ```
 
 Kills the tmux window, releases the track claim, updates status to `killed`.
@@ -191,9 +191,9 @@ Kills the tmux window, releases the track claim, updates status to `killed`.
 #### Clean Up Finished Workers
 
 ```bash
-.agent/kf/bin/kf-conductor.py cleanup --completed   # clean successful workers
-.agent/kf/bin/kf-conductor.py cleanup --failed       # clean failed/timed-out workers
-.agent/kf/bin/kf-conductor.py cleanup --all          # clean everything (kills running workers)
+~/.kf/bin/kf-conductor.py cleanup --completed   # clean successful workers
+~/.kf/bin/kf-conductor.py cleanup --failed       # clean failed/timed-out workers
+~/.kf/bin/kf-conductor.py cleanup --all          # clean everything (kills running workers)
 ```
 
 Cleanup resets worktrees to their home branch, releases claims, and removes status files.
@@ -207,11 +207,11 @@ Cleanup resets worktrees to their home branch, releases claims, and removes stat
 Best for processing an entire track queue hands-off:
 
 1. Verify inside tmux: `echo $TMUX`
-2. Run pre-flight: `.agent/kf/bin/kf-preflight.py`
-3. Start the manager: `.agent/kf/bin/kf-conductor.py start --timeout 30`
-4. Monitor from another window: `.agent/kf/bin/kf-conductor.py status`
+2. Run pre-flight: `~/.kf/bin/kf-preflight.py`
+3. Start the manager: `~/.kf/bin/kf-conductor.py start --timeout 30`
+4. Monitor from another window: `~/.kf/bin/kf-conductor.py status`
 5. The manager handles dispatch, cleanup, and re-dispatch automatically
-6. When done: `.agent/kf/bin/kf-conductor.py stop` or Ctrl+C
+6. When done: `~/.kf/bin/kf-conductor.py stop` or Ctrl+C
 
 ### Option B — Manual (Lead Agent)
 
@@ -220,24 +220,24 @@ Best when you want fine-grained control over each dispatch cycle:
 #### Phase 1 — Pre-flight
 
 1. Verify inside tmux: `echo $TMUX`
-2. Run pre-flight: `.agent/kf/bin/kf-preflight.py`
-3. Check current state: `.agent/kf/bin/kf-conductor.py status`
+2. Run pre-flight: `~/.kf/bin/kf-preflight.py`
+3. Check current state: `~/.kf/bin/kf-conductor.py status`
 
 #### Phase 2 — Dispatch
 
 ```bash
-.agent/kf/bin/kf-conductor.py dispatch --timeout 30
+~/.kf/bin/kf-conductor.py dispatch --timeout 30
 ```
 
 Or for more control, run dispatch manually:
 
 ```bash
 # See what would be assigned
-.agent/kf/bin/kf-dispatch.py
+~/.kf/bin/kf-dispatch.py
 
 # Spawn workers individually
-.agent/kf/bin/kf-conductor.py spawn kfc-a3b2c1-worker-1 track_20260312T000000Z --timeout 30
-.agent/kf/bin/kf-conductor.py spawn kfc-a3b2c1-worker-2 track_20260312T000001Z --timeout 30
+~/.kf/bin/kf-conductor.py spawn kfc-a3b2c1-worker-1 track_20260312T000000Z --timeout 30
+~/.kf/bin/kf-conductor.py spawn kfc-a3b2c1-worker-2 track_20260312T000001Z --timeout 30
 ```
 
 #### Phase 3 — Monitor
@@ -245,7 +245,7 @@ Or for more control, run dispatch manually:
 Poll status periodically:
 
 ```bash
-.agent/kf/bin/kf-conductor.py status
+~/.kf/bin/kf-conductor.py status
 ```
 
 Or watch a specific worker's output:
@@ -260,16 +260,16 @@ After workers finish:
 
 ```bash
 # See results
-.agent/kf/bin/kf-conductor.py status
+~/.kf/bin/kf-conductor.py status
 
 # Clean up completed workers
-.agent/kf/bin/kf-conductor.py cleanup --completed
+~/.kf/bin/kf-conductor.py cleanup --completed
 
 # Handle failures — check what went wrong
 tmux capture-pane -t kfc-a3b2c1-worker-3 -p | tail -50
 
 # Re-dispatch if new tracks are unblocked
-.agent/kf/bin/kf-conductor.py dispatch --timeout 30
+~/.kf/bin/kf-conductor.py dispatch --timeout 30
 ```
 
 #### Phase 5 — Repeat
@@ -318,13 +318,13 @@ The worker:
 `max_workers` is read from `.agent/kf/config.yaml` (default: 4). Override at runtime:
 
 ```bash
-.agent/kf/bin/kf-conductor.py start --max-workers 6 --timeout 30
+~/.kf/bin/kf-conductor.py start --max-workers 6 --timeout 30
 ```
 
 Or set it permanently:
 
 ```bash
-.agent/kf/bin/kf-track.py config set max_workers 6
+~/.kf/bin/kf-track.py config set max_workers 6
 ```
 
 ## Status File Location
@@ -365,7 +365,7 @@ Both are shared across all worktrees in the repo.
 Use `setup` to create additional workers for the current instance:
 
 ```bash
-.agent/kf/bin/kf-conductor.py setup --workers 6
+~/.kf/bin/kf-conductor.py setup --workers 6
 ```
 
 This creates any missing worker worktrees up to the specified count, using the current instance prefix (e.g., `kfc-a3b2c1-worker-5`, `kfc-a3b2c1-worker-6`).

@@ -13,7 +13,7 @@ You are a **general-purpose interactive assistant** with full awareness of the K
 
 1. **Pre-flight check:**
    ```bash
-   eval "$(.agent/kf/bin/kf-preflight.py)"
+   eval "$(~/.kf/bin/kf-preflight.py)"
    ```
    This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
 
@@ -22,19 +22,19 @@ You are a **general-purpose interactive assistant** with full awareness of the K
    - Read `.agent/kf/tech-stack.yaml` for technical context
    - Read `.agent/kf/workflow.yaml` (if exists) for verification commands and commit conventions
 
-3. **Track registry**: Run `.agent/kf/bin/kf-track.py list` to see all tracks and their statuses
-4. **Quick links**: Run `.agent/kf/bin/kf-track.py quick-links show` for navigation shortcuts
+3. **Track registry**: Run `~/.kf/bin/kf-track.py list` to see all tracks and their statuses
+4. **Quick links**: Run `~/.kf/bin/kf-track.py quick-links show` for navigation shortcuts
 
 ## Available KF Tools
 
 You have access to the Kiloforge CLI tools:
 
-- `.agent/kf/bin/kf-track.py list` — List all tracks with statuses
-- `.agent/kf/bin/kf-track.py get <id>` — Get track metadata
-- `.agent/kf/bin/kf-track.py status` — Full project status dashboard
-- `.agent/kf/bin/kf-track-content.py show <id>` — Read a track's full spec and plan
-- `.agent/kf/bin/kf-track-content.py progress <id>` — Check task completion for a track
-- `.agent/kf/bin/kf-track.py index` — Generated summary of all tracks
+- `~/.kf/bin/kf-track.py list` — List all tracks with statuses
+- `~/.kf/bin/kf-track.py get <id>` — Get track metadata
+- `~/.kf/bin/kf-track.py status` — Full project status dashboard
+- `~/.kf/bin/kf-track-content.py show <id>` — Read a track's full spec and plan
+- `~/.kf/bin/kf-track-content.py progress <id>` — Check task completion for a track
+- `~/.kf/bin/kf-track.py index` — Generated summary of all tracks
 
 ## Available Slash Commands
 

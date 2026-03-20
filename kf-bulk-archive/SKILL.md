@@ -25,7 +25,7 @@ Move all completed track directories into `_archive/` and update `tracks.yaml` i
 
 Run pre-flight check:
 ```bash
-eval "$(.agent/kf/bin/kf-preflight.py)"
+eval "$(~/.kf/bin/kf-preflight.py)"
 ```
 This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
 
@@ -77,7 +77,7 @@ git commit -m "chore: bulk archive {count} completed tracks"
 The archived state must be merged to the primary branch so all worktrees see it. Use the standard metadata merge protocol:
 
 ```bash
-.agent/kf/bin/kf-merge.py --holder "$(basename $(pwd))" --timeout 0
+~/.kf/bin/kf-merge.py --holder "$(basename $(pwd))" --timeout 0
 ```
 
 This is a metadata-only merge (no `--verify` needed). If exit code 2 (lock held), report and retry. If exit code 3 (conflicts), resolve while locked and re-run.

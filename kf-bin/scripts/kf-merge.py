@@ -30,12 +30,12 @@ EXIT CODES:
 FLOWS:
   Metadata merge (architect — commit track content first, registry under lock):
     kf-merge --holder architect-1 --timeout 0 \
-      --registry-cmd ".agent/kf/bin/kf-track.py add X --title '...' --type feature"
+      --registry-cmd "~/.kf/bin/kf-track.py add X --title '...' --type feature"
 
   Implementation merge (developer — with verification):
     kf-merge --holder developer-1 --timeout 300 \
       --verify "make test && make build && make lint" \
-      --reapply ".agent/kf/bin/kf-track.py update X --status completed" \
+      --reapply "~/.kf/bin/kf-track.py update X --status completed" \
       --cleanup-branch kf/feature/my-track
 """
 

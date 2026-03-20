@@ -26,7 +26,7 @@ Display the current status of the Kiloforge project, including overall progress,
 A single command returns everything:
 
 ```bash
-.agent/kf/bin/kf-status.py
+~/.kf/bin/kf-status.py
 ```
 
 This combines in one output:
@@ -54,8 +54,8 @@ The script output is factual. After presenting it, add brief **assessment**:
 For a specific track, use:
 
 ```bash
-.agent/kf/bin/kf-track.py show {trackId}
-.agent/kf/bin/kf-track-content.py progress {trackId}
+~/.kf/bin/kf-track.py show {trackId}
+~/.kf/bin/kf-track-content.py progress {trackId}
 ```
 
 ## Error States

@@ -1,6 +1,6 @@
 # Python Setup for Kiloforge CLI Tools
 
-All Kiloforge CLI tools require Python 3 and PyYAML. During `/kf-setup`, a project-local virtual environment is created at `.agent/kf/.venv` with these dependencies pre-installed. Script shebangs are rewritten to use this venv.
+All Kiloforge CLI tools require Python 3 and PyYAML. During `/kf-setup`, a global virtual environment is created at `~/.kf/.venv` with these dependencies pre-installed. Script shebangs are rewritten to use this venv.
 
 If a script fails with a Python-related error, follow this guide to restore the environment.
 
@@ -92,13 +92,13 @@ After installing on Windows, use `python` instead of `python3` (Windows installs
 
 ```bash
 # Create venv if missing
-if [ ! -d ".agent/kf/.venv" ]; then
-  mkdir -p .agent/kf
-  python3 -m venv ".agent/kf/.venv"
+if [ ! -d ~/.kf/.venv ]; then
+  mkdir -p ~/.kf
+  python3 -m venv ~/.kf/.venv
 fi
 
 # Install PyYAML
-".agent/kf/.venv/bin/pip" install pyyaml
+"~/.kf/.venv/bin/pip" install pyyaml
 ```
 
 If `python3 -m venv` fails on Debian/Ubuntu with "ensurepip is not available":
@@ -112,13 +112,13 @@ sudo apt-get install -y python3-venv
 
 ```powershell
 # Create venv if missing
-if (-not (Test-Path ".agent\kf\.venv")) {
-  New-Item -ItemType Directory -Force -Path ".agent\kf"
-  python -m venv ".agent\kf\.venv"
+if (-not (Test-Path "$HOME\.kf\.venv")) {
+  New-Item -ItemType Directory -Force -Path "$HOME\.kf"
+  python -m venv "$HOME\.kf\.venv"
 }
 
 # Install PyYAML
-& ".agent\kf\.venv\Scripts\pip" install pyyaml
+& "$HOME\.kf\.venv\Scripts\pip" install pyyaml
 ```
 
 ## Step 3: Verify
@@ -126,13 +126,13 @@ if (-not (Test-Path ".agent\kf\.venv")) {
 ### macOS / Linux
 
 ```bash
-".agent/kf/.venv/bin/python" -c "import yaml; print('PyYAML', yaml.__version__)"
+"~/.kf/.venv/bin/python" -c "import yaml; print('PyYAML', yaml.__version__)"
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
-& ".agent\kf\.venv\Scripts\python" -c "import yaml; print('PyYAML', yaml.__version__)"
+& "$HOME\.kf\.venv\Scripts\python" -c "import yaml; print('PyYAML', yaml.__version__)"
 ```
 
 ## Running Scripts
@@ -140,7 +140,7 @@ if (-not (Test-Path ".agent\kf\.venv")) {
 Scripts use `#!/usr/bin/env python3` and rely on the venv being activated first:
 
 ```bash
-source .agent/kf/.venv/bin/activate && .agent/kf/bin/kf-track.py list
+source ~/.kf/.venv/bin/activate && ~/.kf/bin/kf-track.py list
 ```
 
 When running via a skill, `kf-preflight.py` activates the venv automatically via `eval`.

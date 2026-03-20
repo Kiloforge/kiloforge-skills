@@ -30,8 +30,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # Locate kf directory (KF_DIR env var overrides for --ref support from kf-track)
+# Scripts live globally at ~/.kf/bin/; KF_DIR is the project's .agent/kf/ (resolved from cwd)
 SCRIPT_DIR = Path(__file__).resolve().parent
-KF_DIR = Path(os.environ["KF_DIR"]) if "KF_DIR" in os.environ else SCRIPT_DIR.parent
+KF_DIR = Path(os.environ["KF_DIR"]) if "KF_DIR" in os.environ else Path.cwd() / ".agent" / "kf"
 TRACKS_DIR = KF_DIR / "tracks"
 
 # --- YAML handling (no external deps) ---

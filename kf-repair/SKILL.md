@@ -95,7 +95,7 @@ Then proceed to the full audit.
 ### Step 1 — Run pre-flight check
 
 ```bash
-eval "$(.agent/kf/bin/kf-preflight.py)"
+eval "$(~/.kf/bin/kf-preflight.py)"
 ```
 
 This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
@@ -130,7 +130,7 @@ For each check, record:
 Validate `tracks.yaml` entries:
 
 ```bash
-.agent/kf/bin/kf-track.py list --all --ref ${PRIMARY_BRANCH}
+~/.kf/bin/kf-track.py list --all --ref ${PRIMARY_BRANCH}
 ```
 
 Check each entry for:
@@ -157,7 +157,7 @@ Check each entry for:
 ls .agent/kf/tracks/*/track.yaml 2>/dev/null
 
 # Cross-reference with registry
-.agent/kf/bin/kf-track.py list --all --ref ${PRIMARY_BRANCH}
+~/.kf/bin/kf-track.py list --all --ref ${PRIMARY_BRANCH}
 ```
 
 | Check | Severity | Description |
@@ -175,7 +175,7 @@ ls .agent/kf/tracks/*/track.yaml 2>/dev/null
 ### Dimension 3: Dependency Graph Integrity
 
 ```bash
-.agent/kf/bin/kf-track.py deps list --ref ${PRIMARY_BRANCH}
+~/.kf/bin/kf-track.py deps list --ref ${PRIMARY_BRANCH}
 ```
 
 | Check | Severity | Description |
@@ -204,7 +204,7 @@ done
 ### Dimension 4: Conflict Pairs Integrity
 
 ```bash
-.agent/kf/bin/kf-track.py conflicts list --ref ${PRIMARY_BRANCH} 2>/dev/null
+~/.kf/bin/kf-track.py conflicts list --ref ${PRIMARY_BRANCH} 2>/dev/null
 ```
 
 | Check | Severity | Description |
@@ -226,7 +226,7 @@ done
 ```bash
 git worktree list
 git branch --list 'kf/*'
-.agent/kf/bin/kf-merge-lock.py status 2>/dev/null
+~/.kf/bin/kf-merge-lock.py status 2>/dev/null
 ```
 
 | Check | Severity | Description |
@@ -258,7 +258,7 @@ cat .agent/kf/config.yaml
 ### Dimension 7: Branch Lock State
 
 ```bash
-.agent/kf/bin/kf-merge-lock.py status
+~/.kf/bin/kf-merge-lock.py status
 ```
 
 | Check | Severity | Description |
@@ -303,13 +303,13 @@ These are aggregate checks that combine findings from earlier dimensions. No sep
 
 ```bash
 # Use kf-track CLI for status updates
-.agent/kf/bin/kf-track.py update {trackId} --status {correct-status}
+~/.kf/bin/kf-track.py update {trackId} --status {correct-status}
 
 # Use kf-track deps prune for stale dependency cleanup
 # (If CLI supports it — otherwise edit deps.yaml directly)
 
 # Use kf-merge-lock release for stale locks
-.agent/kf/bin/kf-merge-lock.py release
+~/.kf/bin/kf-merge-lock.py release
 
 # Use git worktree prune for dead worktrees
 git worktree prune
