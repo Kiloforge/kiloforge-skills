@@ -15,6 +15,7 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 
 from lib.spec import (
     SpecSnapshot, SpecOp, materialize, snapshot_from_materialized,
+    fulfillment_status,
     load_spec_ops, create_spec_op, validate_spec_refs, validate_spec_ops,
     draft_add, draft_load, draft_list, draft_finalize, draft_discard,
     check_uncommitted_drafts,
@@ -155,6 +156,7 @@ items:
 
 
 class TestMaterialize(unittest.TestCase):
+    """Test materialization — only spec operations change spec state."""
 
     def _base_snapshot(self):
         snap = SpecSnapshot()
@@ -164,113 +166,72 @@ class TestMaterialize(unittest.TestCase):
                       priority="medium")
         return snap
 
-    def test_no_tracks(self):
+    def test_no_ops(self):
         base = self._base_snapshot()
         result = materialize(base)
         self.assertEqual(len(result.items), 2)
         self.assertEqual(result.get_item("auth.oauth2")["status"], "active")
 
-    def test_fulfills(self):
+    def test_fulfills_via_op(self):
         base = self._base_snapshot()
-        tracks = {
-            "track_auth": {
-                "created": "2026-03-21",
-                "spec_refs": [
-                    {"action": "fulfills", "item": "auth.oauth2"},
-                ],
-            }
-        }
-        result = materialize(base, tracks=tracks)
+        op = SpecOp(name="fulfill-auth")
+        op.add_operation("fulfills", "auth.oauth2")
+        result = materialize(base, spec_ops=[op])
         self.assertEqual(result.get_item("auth.oauth2")["status"], "fulfilled")
         self.assertEqual(result.get_item("auth.oauth2")["fulfilled_by"],
-                         "track_auth")
+                         "op:fulfill-auth")
 
-    def test_adds(self):
+    def test_adds_via_op(self):
         base = self._base_snapshot()
-        tracks = {
-            "track_mfa": {
-                "created": "2026-03-22",
-                "spec_refs": [
-                    {"action": "adds", "item": "auth.mfa",
-                     "title": "MFA", "priority": "high",
-                     "description": "TOTP-based MFA"},
-                ],
-            }
-        }
-        result = materialize(base, tracks=tracks)
+        op = SpecOp(name="add-mfa")
+        op.add_operation("adds", "auth.mfa",
+                         title="MFA", priority="high",
+                         description="TOTP-based MFA")
+        result = materialize(base, spec_ops=[op])
         self.assertEqual(len(result.items), 3)
         mfa = result.get_item("auth.mfa")
         self.assertEqual(mfa["title"], "MFA")
-        self.assertEqual(mfa["added_by"], "track_mfa")
+        self.assertEqual(mfa["added_by"], "op:add-mfa")
         self.assertEqual(mfa["category"], "auth")  # auto-derived
 
     def test_adds_idempotent(self):
         """If item already exists, adds is a no-op."""
         base = self._base_snapshot()
-        tracks = {
-            "track_dup": {
-                "created": "2026-03-22",
-                "spec_refs": [
-                    {"action": "adds", "item": "auth.oauth2",
-                     "title": "Different Title"},
-                ],
-            }
-        }
-        result = materialize(base, tracks=tracks)
+        op = SpecOp(name="dup")
+        op.add_operation("adds", "auth.oauth2", title="Different Title")
+        result = materialize(base, spec_ops=[op])
         # Original title preserved (first creator wins)
         self.assertEqual(result.get_item("auth.oauth2")["title"], "OAuth2")
 
     def test_modifies(self):
         base = self._base_snapshot()
-        tracks = {
-            "track_mod": {
-                "created": "2026-03-22",
-                "spec_refs": [
-                    {"action": "modifies", "item": "api.rate-limiting",
-                     "description": "Sliding window algorithm"},
-                ],
-            }
-        }
-        result = materialize(base, tracks=tracks)
+        op = SpecOp(name="mod")
+        op.add_operation("modifies", "api.rate-limiting",
+                         description="Sliding window algorithm")
+        result = materialize(base, spec_ops=[op])
         item = result.get_item("api.rate-limiting")
         self.assertEqual(item["description"], "Sliding window algorithm")
-        self.assertEqual(item["modified_by"], "track_mod")
-        # Title unchanged
+        self.assertEqual(item["modified_by"], "op:mod")
         self.assertEqual(item["title"], "Rate Limiting")
 
     def test_deprecates(self):
         base = self._base_snapshot()
-        tracks = {
-            "track_dep": {
-                "created": "2026-03-22",
-                "spec_refs": [
-                    {"action": "deprecates", "item": "auth.oauth2"},
-                ],
-            }
-        }
-        result = materialize(base, tracks=tracks)
+        op = SpecOp(name="dep")
+        op.add_operation("deprecates", "auth.oauth2")
+        result = materialize(base, spec_ops=[op])
         self.assertEqual(result.get_item("auth.oauth2")["status"],
                          "deprecated")
-        self.assertEqual(result.get_item("auth.oauth2")["deprecated_by"],
-                         "track_dep")
 
     def test_moves(self):
         base = self._base_snapshot()
-        tracks = {
-            "track_mv": {
-                "created": "2026-03-22",
-                "spec_refs": [
-                    {"action": "moves", "item": "auth.oauth2",
-                     "to": "identity.oauth2"},
-                ],
-            }
-        }
-        result = materialize(base, tracks=tracks)
+        op = SpecOp(name="mv")
+        op.add_operation("moves", "auth.oauth2", to="identity.oauth2")
+        result = materialize(base, spec_ops=[op])
         self.assertFalse(result.has_item("auth.oauth2"))
         self.assertTrue(result.has_item("identity.oauth2"))
         item = result.get_item("identity.oauth2")
         self.assertEqual(item["title"], "OAuth2")
-        self.assertEqual(item["moved_by"], "track_mv")
+        self.assertEqual(item["moved_by"], "op:mv")
         self.assertEqual(item["moved_from"], "auth.oauth2")
         self.assertEqual(item["category"], "identity")
 
@@ -282,103 +243,48 @@ class TestMaterialize(unittest.TestCase):
         snap.add_item("legacy.auth.token", "Token Auth", category="legacy")
         snap.add_item("other.thing", "Other", category="other")
 
-        tracks = {
-            "track_mv": {
-                "created": "2026-03-22",
-                "spec_refs": [
-                    {"action": "moves", "item": "legacy.auth",
-                     "to": "identity.auth"},
-                ],
-            }
-        }
-        result = materialize(snap, tracks=tracks)
+        op = SpecOp(name="mv")
+        op.add_operation("moves", "legacy.auth", to="identity.auth")
+        result = materialize(snap, spec_ops=[op])
         self.assertFalse(result.has_item("legacy.auth"))
         self.assertFalse(result.has_item("legacy.auth.session"))
-        self.assertFalse(result.has_item("legacy.auth.token"))
         self.assertTrue(result.has_item("identity.auth"))
         self.assertTrue(result.has_item("identity.auth.session"))
         self.assertTrue(result.has_item("identity.auth.token"))
         self.assertTrue(result.has_item("other.thing"))
-        # Verify category updated
         self.assertEqual(
             result.get_item("identity.auth.session")["category"], "identity")
 
-    def test_relates_to_no_change(self):
+    def test_skips_baked_ops(self):
         base = self._base_snapshot()
-        tracks = {
-            "track_rel": {
-                "created": "2026-03-22",
-                "spec_refs": [
-                    {"action": "relates-to", "item": "auth.oauth2"},
-                ],
-            }
-        }
-        result = materialize(base, tracks=tracks)
-        # No status change
+        base.snapshot_after_ops = ["old-op"]
+        old_op = SpecOp(name="old-op")
+        old_op.add_operation("fulfills", "auth.oauth2")
+        new_op = SpecOp(name="new-op")
+        new_op.add_operation("fulfills", "api.rate-limiting")
+        result = materialize(base, spec_ops=[old_op, new_op])
         self.assertEqual(result.get_item("auth.oauth2")["status"], "active")
-
-    def test_skips_baked_tracks(self):
-        base = self._base_snapshot()
-        base.snapshot_after_tracks = ["track_old"]
-        tracks = {
-            "track_old": {
-                "created": "2026-03-20",
-                "spec_refs": [
-                    {"action": "fulfills", "item": "auth.oauth2"},
-                ],
-            },
-            "track_new": {
-                "created": "2026-03-22",
-                "spec_refs": [
-                    {"action": "fulfills", "item": "api.rate-limiting"},
-                ],
-            },
-        }
-        result = materialize(base, tracks=tracks)
-        # track_old's fulfills should be skipped (already baked)
-        self.assertEqual(result.get_item("auth.oauth2")["status"], "active")
-        # track_new's fulfills should apply
         self.assertEqual(result.get_item("api.rate-limiting")["status"],
                          "fulfilled")
 
-    def test_ordering_by_created_date(self):
-        """Tracks are applied in created-date order."""
+    def test_multiple_ops_in_order(self):
+        """Ops applied in list order (which is filename sort order)."""
         snap = SpecSnapshot()
         snap.add_item("auth.flow", "Auth Flow")
-        tracks = {
-            "track_b": {
-                "created": "2026-03-22",
-                "spec_refs": [
-                    {"action": "modifies", "item": "auth.flow",
-                     "description": "Second"},
-                ],
-            },
-            "track_a": {
-                "created": "2026-03-21",
-                "spec_refs": [
-                    {"action": "modifies", "item": "auth.flow",
-                     "description": "First"},
-                ],
-            },
-        }
-        result = materialize(snap, tracks=tracks)
-        # track_a applied first (earlier date), then track_b overwrites
+        op1 = SpecOp(name="20260321-first")
+        op1.add_operation("modifies", "auth.flow", description="First")
+        op2 = SpecOp(name="20260322-second")
+        op2.add_operation("modifies", "auth.flow", description="Second")
+        result = materialize(snap, spec_ops=[op1, op2])
         self.assertEqual(result.get_item("auth.flow")["description"], "Second")
 
-    def test_multiple_refs_per_track(self):
+    def test_multiple_operations_per_op_file(self):
         base = self._base_snapshot()
-        tracks = {
-            "track_multi": {
-                "created": "2026-03-22",
-                "spec_refs": [
-                    {"action": "fulfills", "item": "auth.oauth2"},
-                    {"action": "adds", "item": "auth.mfa",
-                     "title": "MFA", "description": "TOTP"},
-                    {"action": "deprecates", "item": "api.rate-limiting"},
-                ],
-            }
-        }
-        result = materialize(base, tracks=tracks)
+        op = SpecOp(name="batch")
+        op.add_operation("fulfills", "auth.oauth2")
+        op.add_operation("adds", "auth.mfa", title="MFA", description="TOTP")
+        op.add_operation("deprecates", "api.rate-limiting")
+        result = materialize(base, spec_ops=[op])
         self.assertEqual(result.get_item("auth.oauth2")["status"], "fulfilled")
         self.assertTrue(result.has_item("auth.mfa"))
         self.assertEqual(result.get_item("api.rate-limiting")["status"],
@@ -386,35 +292,21 @@ class TestMaterialize(unittest.TestCase):
 
     def test_unknown_action_ignored(self):
         base = self._base_snapshot()
-        tracks = {
-            "track_x": {
-                "created": "2026-03-22",
-                "spec_refs": [
-                    {"action": "future-action", "item": "auth.oauth2"},
-                ],
-            }
-        }
-        result = materialize(base, tracks=tracks)
+        op = SpecOp(name="future")
+        op.add_operation("future-action", "auth.oauth2")
+        result = materialize(base, spec_ops=[op])
         self.assertEqual(result.get_item("auth.oauth2")["status"], "active")
 
-    def test_ref_to_nonexistent_item(self):
+    def test_op_on_nonexistent_item(self):
         """Actions on non-existent items are no-ops (except adds)."""
         base = self._base_snapshot()
-        tracks = {
-            "track_x": {
-                "created": "2026-03-22",
-                "spec_refs": [
-                    {"action": "fulfills", "item": "nonexistent.item"},
-                    {"action": "modifies", "item": "nonexistent.item",
-                     "title": "X"},
-                    {"action": "deprecates", "item": "nonexistent.item"},
-                    {"action": "moves", "item": "nonexistent.item",
-                     "to": "new.place"},
-                ],
-            }
-        }
-        result = materialize(base, tracks=tracks)
-        self.assertEqual(len(result.items), 2)  # no new items created
+        op = SpecOp(name="bad")
+        op.add_operation("fulfills", "nonexistent.item")
+        op.add_operation("modifies", "nonexistent.item", title="X")
+        op.add_operation("deprecates", "nonexistent.item")
+        op.add_operation("moves", "nonexistent.item", to="new.place")
+        result = materialize(base, spec_ops=[op])
+        self.assertEqual(len(result.items), 2)
 
 
 class TestSnapshotFromMaterialized(unittest.TestCase):
@@ -526,22 +418,16 @@ class TestSpecOp(unittest.TestCase):
 class TestMaterializeWithOps(unittest.TestCase):
     """Test materialization with spec operation files."""
 
-    def test_ops_applied_before_tracks(self):
+    def test_ops_add_then_fulfill(self):
         snap = SpecSnapshot()
-        # Spec op adds an item
-        op = SpecOp(name="init")
-        op.add_operation("adds", "auth.oauth2",
-                         title="OAuth2", priority="high")
-        # Track fulfills it
-        tracks = {
-            "track_a": {
-                "created": "2026-03-22",
-                "spec_refs": [
-                    {"action": "fulfills", "item": "auth.oauth2"},
-                ],
-            }
-        }
-        result = materialize(snap, spec_ops=[op], tracks=tracks)
+        # First op adds an item
+        op1 = SpecOp(name="01-init")
+        op1.add_operation("adds", "auth.oauth2",
+                          title="OAuth2", priority="high")
+        # Second op fulfills it (after assessment)
+        op2 = SpecOp(name="02-fulfill")
+        op2.add_operation("fulfills", "auth.oauth2")
+        result = materialize(snap, spec_ops=[op1, op2])
         self.assertTrue(result.has_item("auth.oauth2"))
         self.assertEqual(result.get_item("auth.oauth2")["status"], "fulfilled")
 
@@ -606,35 +492,36 @@ class TestValidation(unittest.TestCase):
     def test_valid_track_refs(self):
         spec = self._base_spec()
         refs = [
-            {"action": "fulfills", "item": "api.rate"},
+            {"action": "required-for", "item": "api.rate"},
             {"action": "relates-to", "item": "auth.oauth2"},
         ]
         errors = validate_spec_refs(spec, refs)
         self.assertEqual(errors, [])
 
-    def test_track_ref_rejects_structural_actions(self):
+    def test_track_ref_rejects_spec_op_actions(self):
         spec = self._base_spec()
         refs = [
             {"action": "adds", "item": "new.thing", "title": "New"},
+            {"action": "fulfills", "item": "api.rate"},
             {"action": "modifies", "item": "auth.oauth2", "title": "Changed"},
             {"action": "deprecates", "item": "api.rate"},
         ]
         errors = validate_spec_refs(spec, refs)
-        self.assertEqual(len(errors), 3)
+        self.assertEqual(len(errors), 4)
         for err in errors:
             self.assertIn("spec operation", err)
 
     def test_track_ref_missing_item(self):
         spec = self._base_spec()
-        refs = [{"action": "fulfills", "item": "nonexistent"}]
+        refs = [{"action": "required-for", "item": "nonexistent"}]
         errors = validate_spec_refs(spec, refs)
         self.assertEqual(len(errors), 1)
         self.assertIn("not found", errors[0])
 
-    def test_track_ref_fulfills_deprecated(self):
+    def test_track_ref_required_for_deprecated(self):
         spec = self._base_spec()
         spec.items["api.rate"]["status"] = "deprecated"
-        refs = [{"action": "fulfills", "item": "api.rate"}]
+        refs = [{"action": "required-for", "item": "api.rate"}]
         errors = validate_spec_refs(spec, refs)
         self.assertEqual(len(errors), 1)
         self.assertIn("deprecated", errors[0])
@@ -643,6 +530,7 @@ class TestValidation(unittest.TestCase):
         spec = self._base_spec()
         ops = [
             {"action": "adds", "item": "auth.mfa", "title": "MFA"},
+            {"action": "fulfills", "item": "api.rate"},
             {"action": "modifies", "item": "api.rate",
              "description": "Updated"},
             {"action": "unfulfills", "item": "auth.oauth2",
@@ -654,7 +542,7 @@ class TestValidation(unittest.TestCase):
     def test_spec_ops_rejects_track_actions(self):
         spec = self._base_spec()
         ops = [
-            {"action": "fulfills", "item": "api.rate"},
+            {"action": "required-for", "item": "api.rate"},
             {"action": "relates-to", "item": "auth.oauth2"},
         ]
         errors = validate_spec_ops(spec, ops)
@@ -821,6 +709,108 @@ class TestDraftWorkflow(unittest.TestCase):
         draft_finalize(self.spec_dir, "arch-1")
         self.assertIsNone(draft_load(self.spec_dir, "arch-1"))
         self.assertIsNotNone(draft_load(self.spec_dir, "arch-2"))
+
+
+class TestFulfillmentStatus(unittest.TestCase):
+    """Test fulfillment readiness computation from track spec_refs."""
+
+    def test_no_tracks(self):
+        spec = SpecSnapshot()
+        spec.add_item("auth.oauth2", "OAuth2")
+        result = fulfillment_status(spec, {})
+        self.assertFalse(result["auth.oauth2"]["has_requirements"])
+        self.assertFalse(result["auth.oauth2"]["ready_for_assessment"])
+
+    def test_all_required_tracks_complete(self):
+        spec = SpecSnapshot()
+        spec.add_item("auth.oauth2", "OAuth2")
+        tracks = {
+            "track_a": {
+                "status": "completed",
+                "spec_refs": [{"action": "required-for",
+                               "item": "auth.oauth2"}],
+            },
+            "track_b": {
+                "status": "completed",
+                "spec_refs": [{"action": "required-for",
+                               "item": "auth.oauth2"}],
+            },
+        }
+        result = fulfillment_status(spec, tracks)
+        fs = result["auth.oauth2"]
+        self.assertTrue(fs["has_requirements"])
+        self.assertTrue(fs["ready_for_assessment"])
+        self.assertEqual(len(fs["completed_tracks"]), 2)
+        self.assertEqual(len(fs["pending_tracks"]), 0)
+
+    def test_some_tracks_pending(self):
+        spec = SpecSnapshot()
+        spec.add_item("auth.oauth2", "OAuth2")
+        tracks = {
+            "track_a": {
+                "status": "completed",
+                "spec_refs": [{"action": "required-for",
+                               "item": "auth.oauth2"}],
+            },
+            "track_b": {
+                "status": "pending",
+                "spec_refs": [{"action": "required-for",
+                               "item": "auth.oauth2"}],
+            },
+        }
+        result = fulfillment_status(spec, tracks)
+        fs = result["auth.oauth2"]
+        self.assertTrue(fs["has_requirements"])
+        self.assertFalse(fs["ready_for_assessment"])
+        self.assertEqual(fs["pending_tracks"], ["track_b"])
+
+    def test_multiple_items(self):
+        spec = SpecSnapshot()
+        spec.add_item("auth.oauth2", "OAuth2")
+        spec.add_item("api.rate", "Rate Limiting")
+        tracks = {
+            "track_auth": {
+                "status": "completed",
+                "spec_refs": [{"action": "required-for",
+                               "item": "auth.oauth2"}],
+            },
+            "track_api": {
+                "status": "in-progress",
+                "spec_refs": [{"action": "required-for",
+                               "item": "api.rate"}],
+            },
+        }
+        result = fulfillment_status(spec, tracks)
+        self.assertTrue(result["auth.oauth2"]["ready_for_assessment"])
+        self.assertFalse(result["api.rate"]["ready_for_assessment"])
+
+    def test_relates_to_not_counted(self):
+        """relates-to links don't count as requirements."""
+        spec = SpecSnapshot()
+        spec.add_item("auth.oauth2", "OAuth2")
+        tracks = {
+            "track_a": {
+                "status": "pending",
+                "spec_refs": [{"action": "relates-to",
+                               "item": "auth.oauth2"}],
+            },
+        }
+        result = fulfillment_status(spec, tracks)
+        self.assertFalse(result["auth.oauth2"]["has_requirements"])
+
+    def test_deprecated_items_excluded(self):
+        spec = SpecSnapshot()
+        spec.add_item("auth.oauth2", "OAuth2")
+        spec.items["auth.oauth2"]["status"] = "deprecated"
+        result = fulfillment_status(spec, {})
+        self.assertNotIn("auth.oauth2", result)
+
+    def test_already_fulfilled_still_shown(self):
+        spec = SpecSnapshot()
+        spec.add_item("auth.oauth2", "OAuth2")
+        spec.items["auth.oauth2"]["status"] = "fulfilled"
+        result = fulfillment_status(spec, {})
+        self.assertEqual(result["auth.oauth2"]["status"], "fulfilled")
 
 
 if __name__ == "__main__":

@@ -2,9 +2,9 @@
 
 The product spec uses an event-sourcing model:
   - spec.yaml is a materialized snapshot (ground truth at a point in time)
-  - .agent/kf/spec/ contains standalone operation files (spec changes without tracks)
-  - Tracks declare spec_refs in their meta.yaml (track-level spec changes)
-  - Materialization replays: snapshot → spec operations → track spec_refs
+  - .agent/kf/spec/ contains operation files (ALL state changes to the spec)
+  - Tracks declare spec_refs in meta.yaml (declarative links, no state changes)
+  - Materialization replays: snapshot → spec operations (by filename order)
   - Archive operations re-snapshot the materialized spec
 
 Item IDs are hierarchical, using dot notation:
@@ -13,8 +13,8 @@ Item IDs are hierarchical, using dot notation:
 spec.yaml format:
     version: 1
     snapshot_date: "2026-03-21"
-    snapshot_after_tracks: []
-    snapshot_after_ops: []       # operation file names baked into this snapshot
+    snapshot_after_tracks: []       # tracks baked into this snapshot
+    snapshot_after_ops: []          # operation file names baked into snapshot
     items:
       auth.oauth2:
         title: "OAuth2 Authentication"
@@ -24,7 +24,7 @@ spec.yaml format:
         description: "OAuth2-based user authentication"
         added_by: _init
 
-Spec operation file format (.agent/kf/spec/{timestamp}-{slug}.yaml):
+Spec operation file format (.agent/kf/spec/{timestamp}-{hash}-{slug}.yaml):
     date: "2026-03-21"
     author: architect-1
     description: "Initial product spec from product.md"
@@ -35,20 +35,25 @@ Spec operation file format (.agent/kf/spec/{timestamp}-{slug}.yaml):
         category: auth
         priority: high
         description: "OAuth2-based user auth"
-
-Track meta.yaml spec_refs format:
-    spec_refs:
       - action: fulfills
-        item: auth.oauth2
-      - action: adds
-        item: auth.mfa
-        title: "Multi-Factor Authentication"
-        category: auth
-        priority: high
-        description: "TOTP-based MFA support"
+        item: auth.login
       - action: moves
         item: legacy.session-auth
         to: auth.session
+
+Track meta.yaml spec_refs format (declarative links only):
+    spec_refs:
+      - action: required-for
+        item: auth.oauth2
+      - action: relates-to
+        item: api.rate-limiting
+
+Fulfillment flow:
+  1. Architect creates tracks with spec_refs: [{action: required-for, item: X}]
+  2. Multiple tracks can be required-for the same spec item
+  3. Developers implement and complete tracks
+  4. When all tracks required-for item X are complete, item is "ready for assessment"
+  5. An implementer assesses and creates a spec op: {action: fulfills, item: X}
 """
 
 import secrets
@@ -77,30 +82,33 @@ SPEC_HEADER = """\
 # Kiloforge Product Specification
 #
 # Materialized snapshot. Updated during archive operations.
-# Changes come from two sources:
-#   1. Spec operation files in .agent/kf/spec/ (standalone, no track needed)
-#   2. Track spec_refs in .agent/kf/tracks/{id}/meta.yaml
 #
-# ITEM IDS: Hierarchical dot notation (e.g., auth.oauth2, api.rate-limiting)
-#
-# ACTIONS:
+# SPEC OPERATIONS (.agent/kf/spec/):
+#   All state changes to the spec go through operation files.
 #   adds       — Introduces a new spec item (requires title + description)
-#   fulfills   — Implements an existing spec item (marks it fulfilled)
+#   fulfills   — Marks a spec item as fulfilled (after assessment)
 #   modifies   — Changes an existing spec item's fields
 #   deprecates — Removes/supersedes an existing spec item
 #   moves      — Reparents a spec item (requires 'to' field with new ID)
-#   relates-to — Soft link, no state change (informational only)
+#   unfulfills — Reverts fulfilled status (requires 'reason')
 #
+# TRACK SPEC_REFS (.agent/kf/tracks/{id}/meta.yaml):
+#   Tracks declare links to spec items but never change spec state.
+#   required-for — This track is needed to fulfill the spec item
+#   relates-to   — Informational link (no fulfillment implications)
+#
+# ITEM IDS: Hierarchical dot notation (e.g., auth.oauth2, api.rate-limiting)
 # STATUS: active | fulfilled | deprecated
 #
 # TOOL: Use `kf-track spec` to manage. Do not edit by hand.
 
 """
 
-# Actions allowed in spec operation files (structural changes)
-SPEC_OP_ACTIONS = ("adds", "modifies", "deprecates", "moves", "unfulfills")
-# Actions allowed in track spec_refs (linking only)
-TRACK_REF_ACTIONS = ("fulfills", "relates-to")
+# Actions allowed in spec operation files (ALL state changes)
+SPEC_OP_ACTIONS = ("adds", "fulfills", "modifies", "deprecates", "moves",
+                   "unfulfills")
+# Actions allowed in track spec_refs (declarative links only, no state changes)
+TRACK_REF_ACTIONS = ("required-for", "relates-to")
 # All valid actions (union)
 VALID_ACTIONS = SPEC_OP_ACTIONS + TRACK_REF_ACTIONS
 
@@ -578,18 +586,16 @@ class SpecSnapshot:
 # ── Materialization ──────────────────────────────────────────────────────────
 
 def materialize(snapshot: SpecSnapshot,
-                spec_ops: Optional[list[SpecOp]] = None,
-                tracks: Optional[dict[str, dict]] = None,
-                track_order: Optional[list[str]] = None) -> SpecSnapshot:
-    """Replay spec operations + track spec_refs on top of the snapshot.
+                spec_ops: Optional[list[SpecOp]] = None) -> SpecSnapshot:
+    """Replay spec operations on top of the snapshot.
 
-    Order: snapshot → spec operations (by filename) → track spec_refs (by date).
+    Only spec operation files change the spec state. Track spec_refs
+    (required-for, relates-to) are declarative links that don't modify
+    the spec — use fulfillment_status() to assess readiness.
 
     Args:
         snapshot: The base spec snapshot.
-        spec_ops: Standalone spec operation files (from .agent/kf/spec/).
-        tracks: Dict of {track_id: track_meta_dict}.
-        track_order: Optional ordered list of track IDs.
+        spec_ops: Spec operation files (from .agent/kf/spec/).
 
     Returns:
         A new SpecSnapshot representing the materialized spec.
@@ -602,9 +608,7 @@ def materialize(snapshot: SpecSnapshot,
     result.items = {k: dict(v) for k, v in snapshot.items.items()}
 
     baked_ops = set(snapshot.snapshot_after_ops)
-    baked_tracks = set(snapshot.snapshot_after_tracks)
 
-    # Phase 1: Apply spec operation files
     if spec_ops:
         for op in spec_ops:
             if op.name in baked_ops:
@@ -617,31 +621,6 @@ def materialize(snapshot: SpecSnapshot,
                 item_id = ref.get("item", "")
                 if action and item_id:
                     _apply_ref(result, source, action, item_id, ref)
-
-    # Phase 2: Apply track spec_refs
-    if tracks:
-        if track_order is None:
-            def _sort_key(tid):
-                meta = tracks.get(tid, {})
-                return (meta.get("created", ""), tid)
-            track_order = sorted(tracks.keys(), key=_sort_key)
-
-        for tid in track_order:
-            if tid in baked_tracks:
-                continue
-            meta = tracks.get(tid)
-            if meta is None:
-                continue
-            spec_refs = meta.get("spec_refs")
-            if not spec_refs or not isinstance(spec_refs, list):
-                continue
-            for ref in spec_refs:
-                if not isinstance(ref, dict):
-                    continue
-                action = ref.get("action", "")
-                item_id = ref.get("item", "")
-                if action and item_id:
-                    _apply_ref(result, tid, action, item_id, ref)
 
     return result
 
@@ -722,9 +701,8 @@ def _apply_ref(spec: SpecSnapshot, source_id: str, action: str,
                 # Clear the fulfilled_by since it's no longer fulfilled
                 item.pop("fulfilled_by", None)
 
-    elif action == "relates-to":
-        pass
-
+    # Track ref actions (required-for, relates-to) are declarative links
+    # and do not modify the spec. They are handled by fulfillment_status().
     # Unknown actions silently ignored for forward compatibility.
 
 
@@ -754,9 +732,9 @@ def snapshot_from_materialized(materialized: SpecSnapshot,
 
 def validate_spec_refs(spec: SpecSnapshot,
                        spec_refs: list[dict]) -> list[str]:
-    """Validate track spec_refs (linking only: fulfills, relates-to).
+    """Validate track spec_refs (declarative links: required-for, relates-to).
 
-    Tracks cannot perform structural spec changes — those must go through
+    Tracks cannot perform spec state changes — those must go through
     spec operation files in .agent/kf/spec/.
 
     Returns a list of error messages (empty = valid).
@@ -784,20 +762,15 @@ def validate_spec_refs(spec: SpecSnapshot,
             errors.append(f"{prefix}: unknown action '{action}'")
             continue
 
-        if action == "fulfills":
-            if not spec.has_item(item_id):
+        # Both required-for and relates-to need valid spec items
+        if not spec.has_item(item_id):
+            errors.append(
+                f"{prefix}: item '{item_id}' not found in spec")
+        elif action == "required-for":
+            item = spec.get_item(item_id)
+            if item and item.get("status") == "deprecated":
                 errors.append(
-                    f"{prefix}: item '{item_id}' not found in spec")
-            else:
-                item = spec.get_item(item_id)
-                if item and item.get("status") == "deprecated":
-                    errors.append(
-                        f"{prefix}: item '{item_id}' is deprecated")
-
-        elif action == "relates-to":
-            if not spec.has_item(item_id):
-                errors.append(
-                    f"{prefix}: item '{item_id}' not found in spec")
+                    f"{prefix}: item '{item_id}' is deprecated")
 
     return errors
 
@@ -854,6 +827,14 @@ def validate_spec_ops(spec: SpecSnapshot,
                 errors.append(
                     f"{prefix}: item '{item_id}' not found in spec")
 
+        elif action == "fulfills":
+            if not spec.has_item(item_id):
+                errors.append(
+                    f"{prefix}: item '{item_id}' not found in spec")
+            elif (spec.get_item(item_id) or {}).get("status") == "deprecated":
+                errors.append(
+                    f"{prefix}: item '{item_id}' is deprecated")
+
         elif action == "unfulfills":
             if not spec.has_item(item_id):
                 errors.append(
@@ -866,3 +847,74 @@ def validate_spec_ops(spec: SpecSnapshot,
                     f"{prefix}: 'unfulfills' requires 'reason'")
 
     return errors
+
+
+# ── Fulfillment readiness ────────────────────────────────────────────────────
+
+def fulfillment_status(spec: SpecSnapshot,
+                       tracks: dict[str, dict]) -> dict[str, dict]:
+    """Compute fulfillment readiness for each active spec item.
+
+    Examines track spec_refs (required-for) to determine which tracks
+    are needed for each spec item and whether they're all completed.
+
+    Args:
+        spec: The current (materialized) spec snapshot.
+        tracks: Dict of {track_id: track_meta_dict} — all tracks.
+
+    Returns:
+        Dict of {item_id: {
+            "status": spec item status,
+            "required_tracks": [track_ids required for this item],
+            "completed_tracks": [completed track_ids],
+            "pending_tracks": [incomplete track_ids],
+            "ready_for_assessment": bool (all required tracks completed),
+            "has_requirements": bool (at least one track is required-for),
+        }}
+
+    Only includes active (non-deprecated) spec items.
+    """
+    result = {}
+
+    # Build reverse index: spec_item → [track_ids required for it]
+    item_tracks: dict[str, list[str]] = {}
+    for tid, meta in tracks.items():
+        spec_refs = meta.get("spec_refs")
+        if not spec_refs or not isinstance(spec_refs, list):
+            continue
+        for ref in spec_refs:
+            if not isinstance(ref, dict):
+                continue
+            if ref.get("action") == "required-for":
+                item_id = ref.get("item", "")
+                if item_id:
+                    item_tracks.setdefault(item_id, []).append(tid)
+
+    for item_id, item_data in spec.items.items():
+        status = item_data.get("status", "active")
+        if status == "deprecated":
+            continue
+
+        required = item_tracks.get(item_id, [])
+        completed = []
+        pending = []
+        for tid in required:
+            track_meta = tracks.get(tid, {})
+            if track_meta.get("status") == "completed":
+                completed.append(tid)
+            else:
+                pending.append(tid)
+
+        has_reqs = len(required) > 0
+        ready = has_reqs and len(pending) == 0
+
+        result[item_id] = {
+            "status": status,
+            "required_tracks": sorted(required),
+            "completed_tracks": sorted(completed),
+            "pending_tracks": sorted(pending),
+            "ready_for_assessment": ready,
+            "has_requirements": has_reqs,
+        }
+
+    return result
