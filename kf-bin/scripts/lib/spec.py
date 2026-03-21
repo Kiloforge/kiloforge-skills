@@ -43,17 +43,24 @@ Spec operation file format (.agent/kf/spec/{timestamp}-{hash}-{slug}.yaml):
 
 Track meta.yaml spec_refs format (declarative links only):
     spec_refs:
-      - action: required-for
-        item: auth.oauth2
-      - action: relates-to
-        item: api.rate-limiting
+      - action: required-for           # product: this track helps fulfill it
+        item: product.cats.browse
+      - action: constrained-by          # technical: this track must follow it
+        item: tech.api.cursor-pagination
+      - action: relates-to              # informational
+        item: product.search
+
+Item types:
+  product   — User-facing capability (WHAT). IDs: product.{domain}.{capability}
+  technical — Implementation constraint (HOW). IDs: tech.{domain}.{constraint}
 
 Fulfillment flow:
-  1. Architect creates tracks with spec_refs: [{action: required-for, item: X}]
-  2. Multiple tracks can be required-for the same spec item
-  3. Developers implement and complete tracks
-  4. When all tracks required-for item X are complete, item is "ready for assessment"
-  5. An implementer assesses and creates a spec op: {action: fulfills, item: X}
+  1. Architect creates tracks with spec_refs: [{action: required-for, item: product.X}]
+  2. Multiple tracks can be required-for the same product spec item
+  3. Tracks also declare constrained-by for technical spec items they must follow
+  4. Developers implement tracks, consulting constrained-by items for guidance
+  5. When all tracks required-for product item X are complete, it's "ready for assessment"
+  6. An implementer assesses and creates a spec op: {action: fulfills, item: product.X}
 """
 
 import secrets
@@ -79,13 +86,21 @@ def now_timestamp() -> str:
 
 
 SPEC_HEADER = """\
-# Kiloforge Product Specification
+# Kiloforge Specification
 #
 # Materialized snapshot. Updated during archive operations.
 #
+# ITEM TYPES:
+#   product   — User-facing capability (WHAT users can do)
+#              IDs: product.{domain}.{capability}
+#              e.g., product.cats.browse, product.auth.login
+#   technical — Implementation constraint or architectural decision (HOW)
+#              IDs: tech.{domain}.{constraint}
+#              e.g., tech.api.cursor-pagination, tech.auth.jwt-rs256
+#
 # SPEC OPERATIONS (.agent/kf/spec/):
-#   All state changes to the spec go through operation files.
-#   adds       — Introduces a new spec item (requires title + description)
+#   All state changes go through operation files.
+#   adds       — Introduces a new spec item (requires title + type)
 #   fulfills   — Marks a spec item as fulfilled (after assessment)
 #   modifies   — Changes an existing spec item's fields
 #   deprecates — Removes/supersedes an existing spec item
@@ -94,10 +109,10 @@ SPEC_HEADER = """\
 #
 # TRACK SPEC_REFS (.agent/kf/tracks/{id}/meta.yaml):
 #   Tracks declare links to spec items but never change spec state.
-#   required-for — This track is needed to fulfill the spec item
-#   relates-to   — Informational link (no fulfillment implications)
+#   required-for   — This track is needed to fulfill the spec item
+#   constrained-by — This track must follow this technical constraint
+#   relates-to     — Informational link (no fulfillment implications)
 #
-# ITEM IDS: Hierarchical dot notation (e.g., auth.oauth2, api.rate-limiting)
 # STATUS: active | fulfilled | deprecated
 #
 # TOOL: Use `kf-track spec` to manage. Do not edit by hand.
@@ -108,14 +123,16 @@ SPEC_HEADER = """\
 SPEC_OP_ACTIONS = ("adds", "fulfills", "modifies", "deprecates", "moves",
                    "unfulfills")
 # Actions allowed in track spec_refs (declarative links only, no state changes)
-TRACK_REF_ACTIONS = ("required-for", "relates-to")
+TRACK_REF_ACTIONS = ("required-for", "constrained-by", "relates-to")
 # All valid actions (union)
 VALID_ACTIONS = SPEC_OP_ACTIONS + TRACK_REF_ACTIONS
 
 VALID_STATUSES = ("active", "fulfilled", "deprecated")
-ITEM_FIELDS = ("title", "category", "status", "priority", "description",
-               "added_by", "fulfilled_by", "deprecated_by", "modified_by",
-               "moved_by", "moved_from", "unfulfilled_by", "unfulfill_reason")
+VALID_ITEM_TYPES = ("product", "technical")
+ITEM_FIELDS = ("title", "type", "category", "status", "priority",
+               "description", "added_by", "fulfilled_by", "deprecated_by",
+               "modified_by", "moved_by", "moved_from",
+               "unfulfilled_by", "unfulfill_reason")
 
 
 def _ordered_item(data: dict) -> dict:
@@ -525,16 +542,32 @@ class SpecSnapshot:
                         allow_unicode=True)
         )
 
-    def add_item(self, item_id: str, title: str, category: str = "",
-                 priority: str = "medium", description: str = "",
-                 added_by: str = "_init"):
-        """Add a new spec item."""
+    def add_item(self, item_id: str, title: str, type_: str = "",
+                 category: str = "", priority: str = "medium",
+                 description: str = "", added_by: str = "_init"):
+        """Add a new spec item.
+
+        Type is auto-derived from the ID prefix if not given:
+          product.* → product
+          tech.*    → technical
+        Category is auto-derived from the second level of the ID.
+        """
         if item_id in self.items:
             raise ValueError(f"Spec item already exists: {item_id}")
-        if not category and "." in item_id:
-            category = item_id.split(".")[0]
+        # Auto-derive type from ID prefix
+        if not type_:
+            if item_id.startswith("product."):
+                type_ = "product"
+            elif item_id.startswith("tech."):
+                type_ = "technical"
+        # Auto-derive category from hierarchy
+        if not category:
+            parts = item_id.split(".")
+            if len(parts) >= 2:
+                category = parts[1] if parts[0] in ("product", "tech") else parts[0]
         self.items[item_id] = _ordered_item({
             "title": title,
+            "type": type_,
             "category": category,
             "status": "active",
             "priority": priority,
@@ -631,11 +664,23 @@ def _apply_ref(spec: SpecSnapshot, source_id: str, action: str,
 
     if action == "adds":
         if item_id not in spec.items:
+            # Auto-derive type from ID prefix
+            type_ = ref.get("type", "")
+            if not type_:
+                if item_id.startswith("product."):
+                    type_ = "product"
+                elif item_id.startswith("tech."):
+                    type_ = "technical"
+            # Auto-derive category from hierarchy
             category = ref.get("category", "")
-            if not category and "." in item_id:
-                category = item_id.split(".")[0]
+            if not category:
+                parts = item_id.split(".")
+                if len(parts) >= 2:
+                    category = (parts[1] if parts[0] in ("product", "tech")
+                                else parts[0])
             spec.items[item_id] = _ordered_item({
                 "title": ref.get("title", item_id),
+                "type": type_,
                 "category": category,
                 "status": "active",
                 "priority": ref.get("priority", "medium"),
@@ -732,8 +777,9 @@ def snapshot_from_materialized(materialized: SpecSnapshot,
 
 def validate_spec_refs(spec: SpecSnapshot,
                        spec_refs: list[dict]) -> list[str]:
-    """Validate track spec_refs (declarative links: required-for, relates-to).
+    """Validate track spec_refs (declarative links only).
 
+    Allowed: required-for, constrained-by, relates-to.
     Tracks cannot perform spec state changes — those must go through
     spec operation files in .agent/kf/spec/.
 
@@ -762,15 +808,29 @@ def validate_spec_refs(spec: SpecSnapshot,
             errors.append(f"{prefix}: unknown action '{action}'")
             continue
 
-        # Both required-for and relates-to need valid spec items
+        # All track ref actions need valid spec items
         if not spec.has_item(item_id):
             errors.append(
                 f"{prefix}: item '{item_id}' not found in spec")
-        elif action == "required-for":
-            item = spec.get_item(item_id)
-            if item and item.get("status") == "deprecated":
-                errors.append(
-                    f"{prefix}: item '{item_id}' is deprecated")
+            continue
+
+        item = spec.get_item(item_id) or {}
+        if item.get("status") == "deprecated":
+            errors.append(
+                f"{prefix}: item '{item_id}' is deprecated")
+            continue
+
+        # constrained-by should reference technical items
+        if action == "constrained-by" and item.get("type") == "product":
+            errors.append(
+                f"{prefix}: 'constrained-by' should reference a technical "
+                f"spec item, but '{item_id}' is type 'product'")
+
+        # required-for should reference product items
+        if action == "required-for" and item.get("type") == "technical":
+            errors.append(
+                f"{prefix}: 'required-for' should reference a product "
+                f"spec item, but '{item_id}' is type 'technical'")
 
     return errors
 
@@ -892,8 +952,9 @@ def fulfillment_status(spec: SpecSnapshot,
             if tid not in all_tracks:
                 all_tracks[tid] = meta
 
-    # Build reverse index: spec_item → {required: [tids], related: [tids]}
+    # Build reverse index: spec_item → {required/constrained/related: [tids]}
     item_required: dict[str, list[str]] = {}
+    item_constrained: dict[str, list[str]] = {}
     item_related: dict[str, list[str]] = {}
     for tid, meta in all_tracks.items():
         if not include_archived and meta.get("status") in ("archived",):
@@ -910,6 +971,8 @@ def fulfillment_status(spec: SpecSnapshot,
                 continue
             if action == "required-for":
                 item_required.setdefault(item_id, []).append(tid)
+            elif action == "constrained-by":
+                item_constrained.setdefault(item_id, []).append(tid)
             elif action == "relates-to":
                 item_related.setdefault(item_id, []).append(tid)
 
@@ -927,9 +990,11 @@ def fulfillment_status(spec: SpecSnapshot,
             continue
 
         required = item_required.get(item_id, [])
+        constrained = item_constrained.get(item_id, [])
         related = item_related.get(item_id, [])
 
         required_info = [_track_info(tid) for tid in sorted(required)]
+        constrained_info = [_track_info(tid) for tid in sorted(constrained)]
         related_info = [_track_info(tid) for tid in sorted(related)]
 
         completed_count = sum(
@@ -939,8 +1004,10 @@ def fulfillment_status(spec: SpecSnapshot,
         ready = has_reqs and completed_count == total
 
         result[item_id] = {
+            "type": item_data.get("type", ""),
             "status": status,
             "required_tracks": required_info,
+            "constrained_tracks": constrained_info,
             "related_tracks": related_info,
             "completed_required": completed_count,
             "total_required": total,
@@ -995,6 +1062,7 @@ def spec_item_tracks(spec: SpecSnapshot,
                 all_tracks[tid] = meta
 
     required = []
+    constrained = []
     related = []
 
     for tid, meta in all_tracks.items():
@@ -1020,10 +1088,13 @@ def spec_item_tracks(spec: SpecSnapshot,
             }
             if action == "required-for":
                 required.append(info)
+            elif action == "constrained-by":
+                constrained.append(info)
             elif action == "relates-to":
                 related.append(info)
 
     required.sort(key=lambda t: t["id"])
+    constrained.sort(key=lambda t: t["id"])
     related.sort(key=lambda t: t["id"])
     completed = sum(1 for t in required if t["status"] == "completed")
     total = len(required)
@@ -1031,9 +1102,11 @@ def spec_item_tracks(spec: SpecSnapshot,
     return {
         "item_id": item_id,
         "title": item_data.get("title", ""),
+        "type": item_data.get("type", ""),
         "status": item_data.get("status", "active"),
         "priority": item_data.get("priority", ""),
         "required_tracks": required,
+        "constrained_tracks": constrained,
         "related_tracks": related,
         "completed_required": completed,
         "total_required": total,

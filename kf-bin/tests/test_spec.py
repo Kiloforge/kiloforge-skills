@@ -583,6 +583,106 @@ class TestValidation(unittest.TestCase):
         self.assertIn("already exists", " ".join(errors))
 
 
+class TestItemTypes(unittest.TestCase):
+    """Test product vs technical spec item types."""
+
+    def test_auto_derive_product_type(self):
+        snap = SpecSnapshot()
+        snap.add_item("product.cats.browse", "Browse Cats")
+        item = snap.get_item("product.cats.browse")
+        self.assertEqual(item["type"], "product")
+        self.assertEqual(item["category"], "cats")
+
+    def test_auto_derive_technical_type(self):
+        snap = SpecSnapshot()
+        snap.add_item("tech.api.cursor-pagination", "Cursor Pagination")
+        item = snap.get_item("tech.api.cursor-pagination")
+        self.assertEqual(item["type"], "technical")
+        self.assertEqual(item["category"], "api")
+
+    def test_explicit_type_override(self):
+        snap = SpecSnapshot()
+        snap.add_item("custom.thing", "Custom", type_="technical")
+        self.assertEqual(snap.get_item("custom.thing")["type"], "technical")
+
+    def test_materialize_preserves_type(self):
+        snap = SpecSnapshot()
+        op = SpecOp(name="init")
+        op.add_operation("adds", "product.cats.browse",
+                         title="Browse Cats", description="User browses cats")
+        op.add_operation("adds", "tech.api.cursor-pagination",
+                         title="Cursor Pagination",
+                         description="Use cursor-based pagination")
+        result = materialize(snap, spec_ops=[op])
+        self.assertEqual(result.get_item("product.cats.browse")["type"],
+                         "product")
+        self.assertEqual(
+            result.get_item("tech.api.cursor-pagination")["type"],
+            "technical")
+
+    def test_constrained_by_ref(self):
+        spec = SpecSnapshot()
+        spec.add_item("product.cats.browse", "Browse Cats")
+        spec.add_item("tech.api.cursor-pagination", "Cursor Pagination")
+        refs = [
+            {"action": "required-for", "item": "product.cats.browse"},
+            {"action": "constrained-by",
+             "item": "tech.api.cursor-pagination"},
+        ]
+        errors = validate_spec_refs(spec, refs)
+        self.assertEqual(errors, [])
+
+    def test_constrained_by_product_item_warns(self):
+        spec = SpecSnapshot()
+        spec.add_item("product.cats.browse", "Browse Cats")
+        refs = [
+            {"action": "constrained-by", "item": "product.cats.browse"},
+        ]
+        errors = validate_spec_refs(spec, refs)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("technical", errors[0])
+
+    def test_required_for_technical_item_warns(self):
+        spec = SpecSnapshot()
+        spec.add_item("tech.api.pagination", "Pagination")
+        refs = [
+            {"action": "required-for", "item": "tech.api.pagination"},
+        ]
+        errors = validate_spec_refs(spec, refs)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("product", errors[0])
+
+    def test_fulfillment_status_includes_constrained(self):
+        spec = SpecSnapshot()
+        spec.add_item("tech.api.pagination", "Pagination")
+        tracks = {
+            "track_a": {
+                "status": "in-progress", "title": "API List",
+                "spec_refs": [{"action": "constrained-by",
+                               "item": "tech.api.pagination"}],
+            },
+        }
+        result = fulfillment_status(spec, tracks)
+        fs = result["tech.api.pagination"]
+        self.assertEqual(len(fs["constrained_tracks"]), 1)
+        self.assertEqual(fs["constrained_tracks"][0]["id"], "track_a")
+
+    def test_spec_item_tracks_includes_constrained(self):
+        spec = SpecSnapshot()
+        spec.add_item("tech.db.read-replicas", "Read Replicas")
+        tracks = {
+            "track_a": {
+                "status": "pending", "title": "DB Query Layer",
+                "type": "feature",
+                "spec_refs": [{"action": "constrained-by",
+                               "item": "tech.db.read-replicas"}],
+            },
+        }
+        result = spec_item_tracks(spec, "tech.db.read-replicas", tracks)
+        self.assertEqual(len(result["constrained_tracks"]), 1)
+        self.assertEqual(result["type"], "technical")
+
+
 class TestDraftWorkflow(unittest.TestCase):
     """Test draft accumulation, finalization, and safety checks."""
 
