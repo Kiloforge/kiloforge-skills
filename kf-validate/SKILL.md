@@ -71,12 +71,12 @@ These files must exist for a properly initialized project:
 | `.agent/kf/product.yaml` | Yes | Product definition |
 | `.agent/kf/tech-stack.yaml` | Yes | Technology stack |
 | `.agent/kf/workflow.yaml` | Yes | Development workflow |
-| `.agent/kf/tracks.yaml` | Yes | Track registry |
+| `.agent/kf/tracks/{id}/meta.yaml` | Yes | Per-track registry (one per track) |
 | `.agent/kf/config.yaml` | Yes | Project configuration |
 | `.agent/kf/product-guidelines.yaml` | No | Optional product guidelines |
 
 ```bash
-for file in product.yaml tech-stack.yaml workflow.yaml tracks.yaml config.yaml; do
+for file in product.yaml tech-stack.yaml workflow.yaml config.yaml; do
   git show ${PRIMARY_BRANCH}:.agent/kf/${file} > /dev/null 2>&1 \
     && echo "PASS: ${file}" \
     || echo "FAIL: ${file} missing"
@@ -92,7 +92,7 @@ done
 
 ### Step 4 — Validate track registry
 
-Load `tracks.yaml` and verify its structure:
+Load track registry and verify its structure:
 
 ```bash
 ~/.kf/bin/kf-track.py list --all --ref ${PRIMARY_BRANCH}
@@ -109,7 +109,7 @@ For each track entry, verify:
 
 ### Step 5 — Validate track directories match registry
 
-Every pending or in-progress track in `tracks.yaml` should have a corresponding directory at `.agent/kf/tracks/{trackId}/` containing a `track.yaml` file.
+Every pending or in-progress track in the registry should have a corresponding directory at `.agent/kf/tracks/{trackId}/` containing a `track.yaml` file.
 
 ```bash
 # List track directories on the primary branch
@@ -136,7 +136,7 @@ git show ${PRIMARY_BRANCH}:.agent/kf/tracks/deps.yaml 2>/dev/null
 | Check | Description |
 |-------|-------------|
 | Valid YAML | File parses without errors |
-| All referenced track IDs exist | Every track ID in deps.yaml exists in tracks.yaml |
+| All referenced track IDs exist | All referenced track IDs exist in the registry |
 | No self-dependencies | No track depends on itself |
 | No references to archived/completed tracks | Dependencies only reference active tracks |
 | No circular dependencies | Dependency graph is acyclic |
@@ -152,16 +152,37 @@ git show ${PRIMARY_BRANCH}:.agent/kf/tracks/conflicts.yaml 2>/dev/null
 | Check | Description |
 |-------|-------------|
 | Valid YAML | File parses without errors |
-| All referenced track IDs exist | Both tracks in each pair exist in tracks.yaml |
+| All referenced track IDs exist | Both tracks in each pair exist in the registry |
 | Pair ordering | Track IDs in each pair are alphabetically ordered |
 | No stale pairs | No completed/archived tracks in conflict pairs |
 | Valid risk levels | Risk is one of: `low`, `medium`, `high` |
+
+### Step 8b — Validate spec (if exists)
+
+Check `.agent/kf/spec.yaml` for consistency. **Skip this step entirely if spec.yaml does not exist.**
+
+```bash
+~/.kf/bin/kf-track.py spec show --ref ${PRIMARY_BRANCH}
+```
+
+If spec exists, validate:
+
+| Check | Description |
+|-------|-------------|
+| Valid YAML | spec.yaml parses without errors |
+| Item ID format | Product items start with `product.`, technical items start with `tech.` |
+| Valid item status | One of: `active`, `fulfilled`, `deprecated` |
+| Valid item type | One of: `product`, `technical` |
+| Track spec_refs validity | For each active track with `spec_refs`, run `~/.kf/bin/kf-track.py spec validate <track-id> --ref ${PRIMARY_BRANCH}` — all referenced items should exist in spec |
+| No stale drafts | Check for `_draft-*.yaml` files in `.agent/kf/spec/` — these should be finalized or discarded before merge |
+
+Report spec validation as warnings, not errors — spec is optional and missing refs are informational.
 
 ### Step 8 — Pattern matching validation
 
 Verify that values across all files conform to expected patterns:
 
-**Status markers in tracks.yaml:**
+**Status markers in track registry:**
 
 Valid values: `pending`, `in-progress`, `completed`, `archived`
 
@@ -227,7 +248,7 @@ Run /kf-setup to initialize Kiloforge for this project.
 
 ### No Tracks
 
-If tracks.yaml exists but contains zero entries:
+If the track registry contains zero entries:
 
 ```
 Kiloforge is set up but no tracks have been created yet.

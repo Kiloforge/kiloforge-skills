@@ -344,20 +344,25 @@ def clean_legacy() -> list[str]:
     return removed
 
 
-def restore_shebangs() -> None:
-    """Rewrite shebangs to point to the global ~/.kf/.venv/bin/python3."""
+def clean_shebangs() -> None:
+    """Ensure shebangs are #!/usr/bin/env python3 (portable).
+
+    Reverts any previously hardcoded venv shebangs back to env-based.
+    Scripts should never have hardcoded interpreter paths — the venv
+    is activated by kf-preflight.py before any script runs.
+    """
     bin_dir = KF_HOME / "bin"
     if not bin_dir.is_dir():
         return
 
-    target_shebang = f"#!{KF_HOME / '.venv' / 'bin' / 'python3'}"
+    portable_shebang = "#!/usr/bin/env python3"
 
     for f in sorted(bin_dir.glob("*.py")):
         text = f.read_text()
         lines = text.split("\n", 1)
         if lines and lines[0].startswith("#!") and "python" in lines[0]:
-            if lines[0] != target_shebang:
-                new_text = target_shebang + "\n" + (lines[1] if len(lines) > 1 else "")
+            if lines[0] != portable_shebang:
+                new_text = portable_shebang + "\n" + (lines[1] if len(lines) > 1 else "")
                 f.write_text(new_text)
         # Strip old injected venv activation preamble if present
         marker_start = "# --- kf venv activation (injected by kf-install) ---"
@@ -461,8 +466,8 @@ def main():
         print(f"  {name}")
     print()
 
-    # Step 3: Restore shebangs to point to global venv
-    restore_shebangs()
+    # Step 3: Ensure portable shebangs (revert any hardcoded venv paths)
+    clean_shebangs()
 
     # Step 4: Clean legacy scripts
     removed = clean_legacy()

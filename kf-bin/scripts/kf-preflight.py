@@ -142,15 +142,75 @@ def check_cli_tools() -> None:
         # Warning only — don't block, some tools may not be needed
 
 
+def check_for_update() -> None:
+    """Check for new release once per 24 hours. Non-blocking, best-effort.
+
+    Reads ~/.kf/VERSION for current version and checks GitHub releases API.
+    Stores last check timestamp in ~/.kf/.update-check to throttle.
+    Prints a notice to stderr if a newer version is available.
+    """
+    import json
+    import time
+
+    check_file = KF_HOME / ".update-check"
+    version_file = KF_HOME / "VERSION"
+    now = time.time()
+
+    # Throttle: skip if checked within 24 hours
+    if check_file.exists():
+        try:
+            last_check = float(check_file.read_text().strip())
+            if now - last_check < 86400:  # 24 hours
+                return
+        except (ValueError, OSError):
+            pass
+
+    # Record this check attempt (even if it fails)
+    try:
+        check_file.write_text(str(now))
+    except OSError:
+        return
+
+    # Read current version
+    current = "unknown"
+    if version_file.exists():
+        try:
+            current = version_file.read_text().strip()
+        except OSError:
+            return
+
+    if current == "unknown":
+        return  # No version installed yet, skip check
+
+    # Check GitHub releases (non-blocking, 2s timeout)
+    try:
+        result = subprocess.run(
+            ["curl", "-sf", "--max-time", "2",
+             "https://api.github.com/repos/kiloforge/kiloforge-skills/releases/latest"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode != 0:
+            return
+        data = json.loads(result.stdout)
+        latest = data.get("tag_name", "").lstrip("v")
+        if latest and latest != current:
+            print(
+                f"  [kf] Update available: {current} → {latest}. "
+                f"Run /kf-update to upgrade.",
+                file=sys.stderr,
+            )
+    except Exception:
+        pass  # Network error, timeout, parse error — silently skip
+
+
 def main() -> None:
     ensure_venv()
     primary_branch = resolve_primary_branch()
     check_metadata_files(primary_branch)
     check_cli_tools()
+    check_for_update()
 
     # Output shell commands for eval — activates venv and sets PRIMARY_BRANCH.
-    # The venv activation puts ~/.kf/.venv/bin/python on PATH so all kf-* scripts
-    # (which use shebangs pointing to the global venv) pick up the correct interpreter.
     venv_activate = os.path.join(VENV_DIR, "bin", "activate")
     if not os.path.exists(venv_activate):
         venv_activate = os.path.join(VENV_DIR, "Scripts", "activate")

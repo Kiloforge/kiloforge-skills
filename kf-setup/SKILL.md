@@ -567,22 +567,33 @@ This is where the user can override TDD strictness or any other value if they sp
 
 After the user confirms the project summary, propose an initial product specification. This is derived from everything gathered so far — product definition, goals, tech stack, and any documentation discovered in Phase 0.
 
-**Generate proposed spec items** using hierarchical dot notation. Group by domain area. For example, a web app with auth and an API might produce:
+**Generate proposed spec items** using hierarchical dot notation. There are two types of spec items:
+
+- **Product items** (WHAT) — User-facing capabilities. IDs: `product.{domain}.{capability}`
+- **Technical items** (HOW) — Implementation constraints/decisions. IDs: `tech.{domain}.{constraint}`
+
+Group by domain area. For example, a web app with auth and an API might produce:
 
 ```
 Based on your project definition, here's a proposed product specification:
 
-  auth.login           [high]    User login with email/password
-  auth.registration    [high]    New user registration flow
-  auth.password-reset  [medium]  Password reset via email
-  api.users            [high]    User CRUD endpoints
-  api.rate-limiting    [medium]  Per-user API rate limiting
-  data.export          [low]     Export user data as CSV/JSON
-  ui.dashboard         [high]    Main dashboard view
-  ui.settings          [medium]  User settings page
+  PRODUCT ITEMS (WHAT users can do):
+  product.auth.login           [high]    User login with email/password
+  product.auth.registration    [high]    New user registration flow
+  product.auth.password-reset  [medium]  Password reset via email
+  product.api.users            [high]    User CRUD endpoints
+  product.data.export          [low]     Export user data as CSV/JSON
+  product.ui.dashboard         [high]    Main dashboard view
+  product.ui.settings          [medium]  User settings page
 
-These spec items define WHAT the product should do. Tracks (created by
-architects) will link to these items as they implement them.
+  TECHNICAL ITEMS (HOW it should be built):
+  tech.api.cursor-pagination   [high]    All list endpoints use cursor pagination
+  tech.api.rate-limiting       [medium]  Per-user API rate limiting
+  tech.auth.jwt-rs256          [high]    JWT tokens with RS256 signing
+
+Product items define WHAT the product should do. Technical items define
+HOW it should be built. Tracks link to these via spec_refs when created
+by architects.
 
 What would you like to do?
   1. Accept this specification
@@ -593,24 +604,28 @@ What would you like to do?
 **If the user chooses 1 (Accept):**
 - Create `.agent/kf/spec.yaml` with all proposed items (status: active, added_by: _init)
 - Create a spec operation file at `.agent/kf/spec/{timestamp}-{hash}-init.yaml` recording the initial operations
+- Use `~/.kf/bin/kf-track.py spec op add <item-id> --title "..." --type product|technical` to draft each item, then `~/.kf/bin/kf-track.py spec op finalize --description "Initial product spec"` to finalize
 
 **If the user chooses 2 (Edit):**
 - Let the user add/remove/modify items interactively
-- Then create spec.yaml and the operation file with the final set
+- Use the same CLI commands to draft and finalize the operation file
 
 **If the user chooses 3 (Skip):**
 - Create an empty `.agent/kf/spec.yaml` (version 1, no items)
 - Do NOT create any operation files
-- Inform the user: "Architects will add spec items via `/kf-architect` as they research and create tracks."
+- Inform the user: "Architects will add spec items via `kf-track spec op add` as they research and create tracks."
 
 **Guidelines for proposing spec items:**
 - Derive from goals, description, and problem statement — not from implementation details
-- Use hierarchical IDs: `{domain}.{capability}` (e.g., `auth.oauth2`, `api.users`)
+- Use hierarchical IDs with type prefix:
+  - Product items: `product.{domain}.{capability}` (e.g., `product.auth.oauth2`, `product.api.users`)
+  - Technical items: `tech.{domain}.{constraint}` (e.g., `tech.api.cursor-pagination`, `tech.auth.jwt-rs256`)
 - Assign priority: high (core to the product), medium (important), low (nice-to-have)
 - Keep descriptions concise (one sentence)
 - For greenfield projects with minimal info, propose fewer items (3-5)
 - For brownfield projects with existing code, analyze the codebase structure to identify existing capabilities and propose spec items that cover both what exists and what's planned
-- Do NOT propose implementation details — spec items describe WHAT, not HOW
+- Product items describe WHAT users can do — technical items describe HOW it should be built
+- Both types are independently valuable: product items guide feature planning, technical items enforce architectural consistency
 
 ## Phase 4: Artifact Generation
 
@@ -646,7 +661,7 @@ Populate with: TDD = strict, commit strategy from Q&A. Defaults: code review = o
 Created during Phase 3b. If the user accepted or edited a specification:
 
 - `spec.yaml` contains the materialized snapshot with all initial items
-- `spec/{timestamp}-{hash}-init.yaml` contains the operation file recording the initial `adds` operations
+- `spec/{timestamp}-{hash}-init.yaml` contains the operation file recording the initial `added` operations
 
 If the user skipped, `spec.yaml` is created empty:
 

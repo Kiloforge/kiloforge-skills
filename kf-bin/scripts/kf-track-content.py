@@ -61,7 +61,14 @@ def yaml_load(text):
     """Load YAML from string. Uses PyYAML if available, otherwise JSON fallback."""
     yaml = _try_import_yaml()
     if yaml:
-        return yaml.safe_load(text)
+        try:
+            return yaml.safe_load(text)
+        except yaml.YAMLError as e:
+            # Report the error clearly instead of a raw traceback
+            print(f"ERROR: Invalid YAML in track file: {e}", file=sys.stderr)
+            print("This usually means unescaped quotes or special characters in the content.", file=sys.stderr)
+            print("Fix the track.yaml file manually or regenerate it via /kf-architect.", file=sys.stderr)
+            return None
     else:
         # Minimal fallback: try JSON first, then simple key-value
         try:
@@ -452,11 +459,18 @@ def track_file(track_id):
     return track_dir(track_id) / "track.yaml"
 
 def load_track(track_id):
-    """Load a track.yaml file. Returns dict or None."""
+    """Load a track.yaml file. Returns dict or None.
+
+    Returns None if the file doesn't exist or fails to parse.
+    YAML parse errors are printed to stderr by yaml_load().
+    """
     path = track_file(track_id)
     if not path.exists():
         return None
-    return yaml_load(path.read_text())
+    data = yaml_load(path.read_text())
+    if data is None:
+        print(f"  File: {path}", file=sys.stderr)
+    return data
 
 def save_track(track_id, data):
     """Save track data to track.yaml with stable field ordering."""

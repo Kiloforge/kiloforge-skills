@@ -38,6 +38,12 @@ When entering the repair role, output this anchor line exactly:
 ACTIVE ROLE: kf-repair — skill at ~/.claude/skills/kf-repair/SKILL.md
 ```
 
+## Reference Documents
+
+When diagnosing issues, consult these as needed:
+- `references/data-schema.md` — authoritative schema for all `.agent/kf/` files (field names, types, valid values)
+- `references/data-guardian.md` — corruption detection heuristics and response protocol
+
 ---
 
 ## Arguments
@@ -67,7 +73,7 @@ When invoked without arguments or with `--help`, display:
 
 I audit Kiloforge system integrity and repair issues across 8 dimensions:
 
-  1. Track Registry     — tracks.yaml entry validity
+  1. Track Registry     — per-track meta.yaml validity
   2. Track Directories  — track.yaml files match registry
   3. Dependency Graph   — deps.yaml references, cycles, stale entries
   4. Conflict Pairs     — conflicts.yaml ordering, active references
@@ -105,7 +111,7 @@ This verifies all required metadata files exist on the primary branch and sets `
 Read from the primary branch to ensure freshness:
 
 ```bash
-git show ${PRIMARY_BRANCH}:.agent/kf/tracks.yaml > /tmp/kf-repair-tracks.yaml
+~/.kf/bin/kf-track.py list --all --json --ref ${PRIMARY_BRANCH}
 git show ${PRIMARY_BRANCH}:.agent/kf/tracks/deps.yaml > /tmp/kf-repair-deps.yaml 2>/dev/null
 git show ${PRIMARY_BRANCH}:.agent/kf/tracks/conflicts.yaml > /tmp/kf-repair-conflicts.yaml 2>/dev/null
 git show ${PRIMARY_BRANCH}:.agent/kf/config.yaml > /tmp/kf-repair-config.yaml 2>/dev/null
@@ -127,7 +133,7 @@ For each check, record:
 
 ### Dimension 1: Track Registry Integrity
 
-Validate `tracks.yaml` entries:
+Validate track registry entries:
 
 ```bash
 ~/.kf/bin/kf-track.py list --all --ref ${PRIMARY_BRANCH}
@@ -153,24 +159,35 @@ Check each entry for:
 ### Dimension 2: Track Directory Consistency
 
 ```bash
-# List all track directories
-ls .agent/kf/tracks/*/track.yaml 2>/dev/null
+# List all track directories and check for meta.yaml (registry) vs track.yaml (content)
+for dir in .agent/kf/tracks/*/; do
+  tid=$(basename "$dir")
+  [ "$tid" = "_archive" ] || [ "$tid" = "_compacted" ] && continue
+  has_meta=$([ -f "$dir/meta.yaml" ] && echo "yes" || echo "NO")
+  has_track=$([ -f "$dir/track.yaml" ] && echo "yes" || echo "no")
+  echo "$tid: meta.yaml=$has_meta track.yaml=$has_track"
+done
 
 # Cross-reference with registry
 ~/.kf/bin/kf-track.py list --all --ref ${PRIMARY_BRANCH}
+
+# Check for stale legacy tracks.yaml
+[ -f .agent/kf/tracks.yaml ] && echo "WARN: legacy tracks.yaml exists — should be removed"
 ```
 
 | Check | Severity | Description |
 |-------|----------|-------------|
 | 2.1 Directory exists | HIGH | Every pending/in-progress track has a directory with `track.yaml` |
-| 2.2 No orphans | MEDIUM | No track directories without a registry entry (except `_archive`) |
-| 2.3 Status match | HIGH | `track.yaml` status matches `tracks.yaml` status |
+| 2.2 No orphans | HIGH | No track directories without a `meta.yaml` (except `_archive`, `_compacted`) |
+| 2.3 Status match | HIGH | `track.yaml` status matches `meta.yaml` status |
 | 2.4 Required sections | MEDIUM | Active tracks have spec and plan sections in `track.yaml` |
+| 2.5 No stale tracks.yaml | MEDIUM | `.agent/kf/tracks.yaml` should not exist (legacy file) |
 
 **Repair actions:**
 - 2.1: Missing directory for active track — **escalate** (track may need spec regeneration)
-- 2.2: Orphaned directory — **auto-fix** (delete if no useful content, or register)
-- 2.3: Status mismatch — **auto-fix** (sync track.yaml to match tracks.yaml as source of truth)
+- 2.2: Orphaned directory (has `track.yaml` but no `meta.yaml`) — **auto-fix**: extract title/type/status from `track.yaml` and register via `~/.kf/bin/kf-track.py add {trackId} --title "..." --type ...`. This is the most common breakage — an architect created content but didn't run `kf-track add`.
+- 2.3: Status mismatch — **auto-fix** (sync track.yaml to match meta.yaml as source of truth)
+- 2.5: Stale `tracks.yaml` found — **auto-fix**: delete `.agent/kf/tracks.yaml` (per-track `meta.yaml` is the source of truth). If tracks.yaml contains entries not in any `meta.yaml`, register them first via check 2.2.
 
 ### Dimension 3: Dependency Graph Integrity
 
@@ -180,7 +197,7 @@ ls .agent/kf/tracks/*/track.yaml 2>/dev/null
 
 | Check | Severity | Description |
 |-------|----------|-------------|
-| 3.1 Valid references | HIGH | All track IDs in deps.yaml exist in tracks.yaml |
+| 3.1 Valid references | HIGH | All track IDs in deps.yaml exist in the track registry |
 | 3.2 No stale entries | MEDIUM | No completed/archived tracks referenced as dependencies |
 | 3.3 No self-deps | HIGH | No track depends on itself |
 | 3.4 No cycles | CRITICAL | Dependency graph is a DAG (no circular dependencies) |
@@ -209,7 +226,7 @@ done
 
 | Check | Severity | Description |
 |-------|----------|-------------|
-| 4.1 Valid references | HIGH | Both tracks in each pair exist in tracks.yaml |
+| 4.1 Valid references | HIGH | Both tracks in each pair exist in the track registry |
 | 4.2 Strict ordering | MEDIUM | Pair keys are alphabetically ordered (a < b) |
 | 4.3 Active tracks only | MEDIUM | No completed/archived tracks in conflict pairs |
 | 4.4 Valid risk levels | LOW | Risk level is one of: `low`, `medium`, `high` |
@@ -276,7 +293,7 @@ This dimension validates relationships across all data files:
 
 | Check | Severity | Description |
 |-------|----------|-------------|
-| 8.1 Deps reference active tracks | HIGH | Every track in deps.yaml is pending or in-progress in tracks.yaml |
+| 8.1 Deps reference active tracks | HIGH | Every track in deps.yaml is pending or in-progress in the track registry |
 | 8.2 Conflicts reference active tracks | HIGH | Every track in conflicts.yaml is pending or in-progress |
 | 8.3 Track dirs match registry | HIGH | Set of track directories equals set of active track IDs |
 | 8.4 In-progress has branch | MEDIUM | Every in-progress track has a matching implementation branch |
@@ -293,10 +310,10 @@ These are aggregate checks that combine findings from earlier dimensions. No sep
 |--------|-----------|--------|
 | Prune stale deps | 3.1, 3.2, 3.3 | Remove entries from deps.yaml referencing completed/archived/non-existent tracks or self-references |
 | Prune stale conflicts | 4.1, 4.3 | Remove entries from conflicts.yaml referencing completed/archived/non-existent tracks |
-| Re-sort files | 1.5, 3.5 | Sort tracks.yaml and deps.yaml entries alphabetically |
+| Re-sort files | 1.5, 3.5 | Sort deps.yaml entries alphabetically |
 | Release stale lock | 7.1 | Release branch lock if holding PID is dead |
 | Prune dead worktrees | 5.5 | Run `git worktree prune` |
-| Sync status | 2.3 | Update track.yaml status to match tracks.yaml |
+| Sync status | 2.3 | Update track.yaml status to match meta.yaml |
 | Reorder conflict pairs | 4.2 | Ensure pair keys are alphabetically ordered |
 
 **Implementation approach for repairs:**
@@ -368,7 +385,7 @@ Total                         34    30     3     1
 
 Critical Findings:
   [FAIL] 3.2 deps.yaml references completed track 'foo_123Z' — PRUNED
-  [WARN] 1.5 tracks.yaml not alphabetically sorted — FIXED
+  [WARN] 1.5 track registry not alphabetically sorted — FIXED
   [WARN] 5.2 Orphaned branch 'kf/feature/old_track' — suggest deletion
   [WARN] 8.1 deps.yaml references non-active track — PRUNED
 

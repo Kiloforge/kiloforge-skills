@@ -5,7 +5,7 @@ Combines pre-flight, current workers, track status, and dispatch
 recommendations into one output. Designed for /kf-status skill.
 
 USAGE:
-    kf-status [--ref BRANCH] [--json]
+    kf-status [--ref BRANCH] [--json] [--spec]
 
 EXIT CODES:
     0  Success
@@ -33,6 +33,7 @@ def main():
     # Parse args
     ref = None
     json_mode = False
+    spec_only = False
     args = sys.argv[1:]
     i = 0
     while i < len(args):
@@ -40,6 +41,8 @@ def main():
             ref = args[i + 1]; i += 2
         elif args[i] == "--json":
             json_mode = True; i += 1
+        elif args[i] == "--spec":
+            spec_only = True; i += 1
         elif args[i] in ("--help", "-h"):
             print(__doc__)
             return 0
@@ -60,6 +63,17 @@ def main():
             primary_branch = primary_branch or line.split("=", 1)[1].strip().strip("'\"")
     if not primary_branch:
         primary_branch = "main"
+
+    # --spec: show spec overview only and exit
+    if spec_only:
+        spec_args = ["spec", "overview"]
+        if primary_branch:
+            spec_args += ["--ref", primary_branch]
+        rc, out, err = run_script("kf-track.py", *spec_args)
+        print(out, end="")
+        if rc != 0 and err:
+            print(err, file=sys.stderr)
+        return rc
 
     # Step 2: Current workers (instant — filesystem claims)
     rc, claim_out, _ = run_script("kf-claim.py", "list")

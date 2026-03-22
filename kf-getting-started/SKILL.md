@@ -610,10 +610,7 @@ Map blueprint fields to kf-setup sections:
    - `.agent/kf/workflow.yaml` — from blueprint quality section
    - `.agent/kf/code_styleguides/` — auto-selected based on language
 
-4. Create `.agent/kf/tracks.yaml`:
-   ```yaml
-   tracks: {}
-   ```
+4. Track registration happens via `kf-track add` (creates per-track `meta.yaml`):
 
 5. Create tracks directory with empty state files:
    ```bash
@@ -648,7 +645,7 @@ Map blueprint fields to kf-setup sections:
    - .agent/kf/product-guidelines.yaml
    - .agent/kf/tech-stack.yaml
    - .agent/kf/workflow.yaml
-   - .agent/kf/tracks.yaml
+   - .agent/kf/tracks/ (per-track meta.yaml)
    - .agent/kf/tracks/deps.yaml
    - .agent/kf/tracks/conflicts.yaml
    - ~/.kf/bin/ (all CLI tools)

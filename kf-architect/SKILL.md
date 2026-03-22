@@ -22,6 +22,7 @@ Generate well-scoped kiloforge tracks by researching the codebase, project conte
 - The project has no Kiloforge artifacts (use `/kf-setup` first)
 - You want to implement an existing track (use `/kf-developer` instead)
 - You want to manage existing tracks (use `/kf-manage` instead)
+- You want a quick interactive track creation without codebase research (see `references/new-track-interactive.md`)
 
 ---
 
@@ -100,9 +101,10 @@ Read all of these (from the working tree, which is now at the latest primary bra
 3. **Tech stack:** `.agent/kf/tech-stack.yaml`
 4. **Project index:** Run `~/.kf/bin/kf-track.py index` (generated summary of all tracks)
 5. **Quick links:** Run `~/.kf/bin/kf-track.py quick-links show` (navigation links)
-6. **Track states:** `.agent/kf/tracks.yaml` (YAML registry — use `~/.kf/bin/kf-track.py list` to query)
+6. **Track states:** Use `~/.kf/bin/kf-track.py list` to query (per-track `meta.yaml` in `.agent/kf/tracks/{id}/`)
 7. **Dependency graph:** `.agent/kf/tracks/deps.yaml` (adjacency list of track dependencies)
 8. **Code style guides:** `.agent/kf/code_styleguides/` (all files, if present)
+9. **Product spec:** Run `~/.kf/bin/kf-track.py spec show --ref ${PRIMARY_BRANCH}` to see all spec items (product capabilities and technical constraints). If no spec exists, skip — spec is optional.
 
 ### Step 3 — Parse the user prompt
 
@@ -276,6 +278,12 @@ plan:
 extra: {}
 ```
 
+**YAML safety — when writing track.yaml directly:**
+- **NEVER start a list item with a quote**: `- "Relevance" sort option` breaks YAML. Use `- Relevance sort option` or `- '"Relevance" sort option'` (wrap in single quotes)
+- **Escape special YAML characters** in strings: `:`, `#`, `{`, `}`, `[`, `]`, `>`, `|`, `*`, `&`, `!`, `%`, `@`, `` ` ``
+- **Use block scalars** (`|` or `>`) for multi-line text — avoids quoting issues entirely
+- **Prefer the CLI** (`kf-track-content.py spec --field ... --set/--append`) over writing YAML directly — it handles escaping automatically
+
 **Important:**
 - Dependencies are NOT in track.yaml — they live in `tracks/deps.yaml` (single source of truth)
 - Conflict risk is NOT in track.yaml — it lives in `tracks/conflicts.yaml` as pairs
@@ -345,7 +353,7 @@ Default to requiring review (safe fallback). When in doubt, do not auto-approve.
 
 #### Manual review prompt
 
-When auto-approve does not apply, display the review prompt:
+When auto-approve does not apply, display the review prompt. If any spec operations were drafted (new items, deprecations, unfulfillments), include them in the review so the user can approve spec changes alongside track changes:
 
 ```
 ================================================================================
@@ -362,12 +370,22 @@ Tracks generated: {count}
   Type:     {type}
   Tasks:    {task count} across {phase count} phases
   Depends:  {dependencies or "None"}
+  Spec:     {spec_refs summary, e.g., "required-for: product.auth.login, constrained-by: tech.api.jwt-rs256" or "None"}
   Summary:  {1-line summary}
+
+{If any spec operations were drafted:}
+
+Spec Changes:
+  {For each drafted operation:}
+  - {action} {item-id}: {title or reason}
+    e.g., "added product.search.fulltext: Full-text search across all entities"
+    e.g., "deprecated product.legacy.export: Superseded by product.data.export"
+    e.g., "unfulfilled product.auth.login: New OAuth2 requirement invalidates prior fulfillment"
 
 ================================================================================
 
 Options:
-1. Approve all — create tracks and register in tracks.yaml
+1. Approve all — create tracks and register via kf-track add
 2. Review details — show full spec/plan for a specific track
 3. Edit — modify a track before approval
 4. Reject — discard and start over
@@ -380,17 +398,39 @@ Options:
 
 For each approved track, create `track.yaml` using CLI or direct write (see Step 8).
 
-Commit track content only — do NOT update registry files (`tracks.yaml`, `deps.yaml`, `conflicts.yaml`) yet. Registry updates happen under lock in Phase 5.
+#### Spec references
 
+If a product spec exists (`.agent/kf/spec.yaml`), link each track to the relevant spec items using `--spec-refs` in the `kf-track add` command below. For each track, determine:
+
+- **required-for** — Which product spec items does this track help fulfill? (e.g., `product.auth.login`)
+- **constrained-by** — Which technical spec items must this track follow? (e.g., `tech.api.cursor-pagination`)
+- **relates-to** — Informational links to other spec items
+
+If the track introduces a new capability not yet in the spec, draft a spec operation to add it:
 ```bash
-git add .agent/kf/tracks/{trackId}/
-git commit -m "chore: add track content {trackId} — {title}"
+~/.kf/bin/kf-track.py spec op add product.{domain}.{capability} --title "..." --type product
 ```
 
-If multiple tracks were approved, commit them together:
+For each track, register it **immediately** via `kf-track add` so the meta.yaml is created alongside the track content. This is safe — each track's meta.yaml is an independent file with no contention.
+
 ```bash
-git add .agent/kf/tracks/*/track.yaml
-git commit -m "chore: add {N} track content from prompt — {brief summary}"
+# Register each track (creates meta.yaml in the track directory)
+~/.kf/bin/kf-track.py add {trackId} --title "{title}" --type {type} \
+  --deps "{dep1,dep2}" \
+  --spec-refs '[{"action":"required-for","item":"product.X"}]'
+
+# Commit track content + registry together
+git add .agent/kf/tracks/{trackId}/
+git commit -m "chore: add track {trackId} — {title}"
+```
+
+If multiple tracks were approved, register and commit them together:
+```bash
+for track in {list of track IDs}; do
+  ~/.kf/bin/kf-track.py add $track --title "..." --type ... --deps "..." --spec-refs '[...]'
+done
+git add .agent/kf/tracks/
+git commit -m "chore: add {N} tracks from prompt — {brief summary}"
 ```
 
 Note: `index.md` is no longer maintained as a file. Agents use `kf-track index` to generate the project index on demand.
@@ -456,28 +496,32 @@ multi-dep-track_20260309000002Z:
 
 ## Phase 5: Merge to Primary Branch
 
-The architect must merge its track artifacts to the primary branch so that developer workers can see and claim them. Track content is committed first (Step 10), then a single lock window handles: rebase → registry update → merge → release.
+The architect must merge its track artifacts to the primary branch so that developer workers can see and claim them. Track content and registry entries (meta.yaml) are already committed in Step 10. The merge step handles: finalize spec → rebase → merge.
 
-For the full merge protocol details, see `kf-merge-protocol/SKILL.md`.
+For the full merge protocol details, see `references/merge-protocol.md`.
 
 ### Step 11 — Merge to primary branch
 
 ```bash
-# Build the registry command for all new tracks in this batch
-REGISTRY_CMD=""
-for track in {list of new track IDs}; do
-  REGISTRY_CMD="$REGISTRY_CMD; ~/.kf/bin/kf-track.py add $track --title '...' --type ... --deps '...'"
-done
-# Add conflict pairs if identified
-REGISTRY_CMD="$REGISTRY_CMD; ~/.kf/bin/kf-track.py conflicts add {a} {b} {risk} 'reason'"
+# Finalize any spec drafts before merge
+~/.kf/bin/kf-track.py spec op finalize --description "Spec updates for {brief description}"
+git add .agent/kf/spec/
+git diff --cached --quiet || git commit -m "chore: finalize spec operations"
 
+# Add conflict pairs if identified during analysis
+~/.kf/bin/kf-track.py conflicts add {a} {b} {risk} "reason"
+git add .agent/kf/tracks/
+git diff --cached --quiet || git commit -m "chore: add conflict pairs"
+
+# Merge to primary branch
 ~/.kf/bin/kf-merge.py \
   --holder "$(basename $(pwd))" \
-  --timeout 0 \
-  --registry-cmd "$REGISTRY_CMD"
+  --timeout 0
 ```
 
-**Flow:** acquire lock → rebase on primary → run registry commands (against clean rebased state, no conflicts) → commit → ff-merge to primary → release lock.
+**Note:** Track registration (`kf-track add`) already happened in Step 10. No `--registry-cmd` needed — meta.yaml files are already committed.
+
+**Flow:** acquire lock → rebase on primary → ff-merge to primary → release lock.
 
 **Exit code 2** means the lock is held — report and **HALT**.
 
@@ -487,11 +531,11 @@ REGISTRY_CMD="$REGISTRY_CMD; ~/.kf/bin/kf-track.py conflicts add {a} {b} {risk} 
 
 ### Step 11b — Return to home branch
 
-After successful merge, return to the home branch (recorded in Step 0) and delete the planning branch:
+After successful merge, return to the home branch (recorded in Step 0) and delete the planning branch. Use `-D` because the rebase during merge makes `-d` think the branch isn't merged:
 
 ```bash
 git checkout "${HOME_BRANCH}"
-git branch -d "$PLAN_BRANCH"
+git branch -D "$PLAN_BRANCH"
 ```
 
 ---
@@ -565,7 +609,7 @@ The architect is responsible for maintaining track state correctness. This means
 1. **Never overwrite existing track states** — if a track was `[~]` or `[x]` on the primary branch, do not reset it to `[ ]`
 2. **Always read from the primary branch before writing** — use `git show ${PRIMARY_BRANCH}:<path>` to get current state
 3. **New tracks only** — the generator adds new `[ ]` entries; it never modifies existing entries
-4. **Conflict resolution favors the primary branch** — on rebase conflict, accept the primary branch's track state files (`tracks.yaml`, `deps.yaml`, `conflicts.yaml`) via `git checkout --theirs`, then re-apply additions via CLI (see Step 12b)
+4. **Conflict resolution favors the primary branch** — on rebase conflict, accept the primary branch's track state files (per-track `meta.yaml`) via `git checkout --theirs`, then re-apply additions via CLI (see Step 12b)
 
 ---
 

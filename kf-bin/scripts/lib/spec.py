@@ -29,15 +29,15 @@ Spec operation file format (.agent/kf/spec/{timestamp}-{hash}-{slug}.yaml):
     author: architect-1
     description: "Initial product spec from product.md"
     operations:
-      - action: adds
+      - action: added
         item: auth.oauth2
         title: "OAuth2 Authentication"
         category: auth
         priority: high
         description: "OAuth2-based user auth"
-      - action: fulfills
+      - action: fulfilled
         item: auth.login
-      - action: moves
+      - action: moved
         item: legacy.session-auth
         to: auth.session
 
@@ -60,7 +60,7 @@ Fulfillment flow:
   3. Tracks also declare constrained-by for technical spec items they must follow
   4. Developers implement tracks, consulting constrained-by items for guidance
   5. When all tracks required-for product item X are complete, it's "ready for assessment"
-  6. An implementer assesses and creates a spec op: {action: fulfills, item: product.X}
+  6. An implementer assesses and creates a spec op: {action: fulfilled, item: product.X}
 """
 
 import secrets
@@ -99,13 +99,13 @@ SPEC_HEADER = """\
 #              e.g., tech.api.cursor-pagination, tech.auth.jwt-rs256
 #
 # SPEC OPERATIONS (.agent/kf/spec/):
-#   All state changes go through operation files.
-#   adds       — Introduces a new spec item (requires title + type)
-#   fulfills   — Marks a spec item as fulfilled (after assessment)
-#   modifies   — Changes an existing spec item's fields
-#   deprecates — Removes/supersedes an existing spec item
-#   moves      — Reparents a spec item (requires 'to' field with new ID)
-#   unfulfills — Reverts fulfilled status (requires 'reason')
+#   All state changes go through operation files. Actions are past-tense events.
+#   added        — Introduces a new spec item (requires title + type)
+#   fulfilled    — Marks a spec item as fulfilled (after assessment)
+#   modified     — Changes an existing spec item's fields
+#   deprecated   — Removes/supersedes an existing spec item
+#   moved        — Reparents a spec item (requires 'to' field with new ID)
+#   unfulfilled  — Reverts fulfilled status (requires 'reason')
 #
 # TRACK SPEC_REFS (.agent/kf/tracks/{id}/meta.yaml):
 #   Tracks declare links to spec items but never change spec state.
@@ -120,8 +120,8 @@ SPEC_HEADER = """\
 """
 
 # Actions allowed in spec operation files (ALL state changes)
-SPEC_OP_ACTIONS = ("adds", "fulfills", "modifies", "deprecates", "moves",
-                   "unfulfills")
+SPEC_OP_ACTIONS = ("added", "fulfilled", "modified", "deprecated", "moved",
+                   "unfulfilled")
 # Actions allowed in track spec_refs (declarative links only, no state changes)
 TRACK_REF_ACTIONS = ("required-for", "constrained-by", "relates-to")
 # All valid actions (union)
@@ -302,18 +302,18 @@ def load_spec_ops_from_ref(ref: str,
 
     result = subprocess.run(
         ["git", "cat-file", "--batch"],
-        input=specs_input,
-        capture_output=True, text=True, check=False,
+        input=specs_input.encode(),
+        capture_output=True, check=False,
     )
 
     ops = []
-    output = result.stdout
+    output = result.stdout  # bytes — sizes are byte counts
     pos = 0
     for fname in filenames:
-        nl = output.find("\n", pos)
+        nl = output.find(b"\n", pos)
         if nl == -1:
             break
-        header = output[pos:nl]
+        header = output[pos:nl].decode("utf-8", errors="replace")
         pos = nl + 1
 
         if "missing" in header:
@@ -327,9 +327,9 @@ def load_spec_ops_from_ref(ref: str,
         except (ValueError, IndexError):
             continue
 
-        content = output[pos:pos + size]
+        content = output[pos:pos + size].decode("utf-8", errors="replace")
         pos += size
-        if pos < len(output) and output[pos] == "\n":
+        if pos < len(output) and output[pos:pos + 1] == b"\n":
             pos += 1
 
         try:
@@ -662,7 +662,7 @@ def _apply_ref(spec: SpecSnapshot, source_id: str, action: str,
                item_id: str, ref: dict):
     """Apply a single spec operation."""
 
-    if action == "adds":
+    if action == "added":
         if item_id not in spec.items:
             # Auto-derive type from ID prefix
             type_ = ref.get("type", "")
@@ -688,12 +688,12 @@ def _apply_ref(spec: SpecSnapshot, source_id: str, action: str,
                 "added_by": source_id,
             })
 
-    elif action == "fulfills":
+    elif action == "fulfilled":
         if item_id in spec.items:
             spec.items[item_id]["status"] = "fulfilled"
             spec.items[item_id]["fulfilled_by"] = source_id
 
-    elif action == "modifies":
+    elif action == "modified":
         if item_id in spec.items:
             item = spec.items[item_id]
             for field in ("title", "description", "category", "priority"):
@@ -701,12 +701,12 @@ def _apply_ref(spec: SpecSnapshot, source_id: str, action: str,
                     item[field] = ref[field]
             item["modified_by"] = source_id
 
-    elif action == "deprecates":
+    elif action == "deprecated":
         if item_id in spec.items:
             spec.items[item_id]["status"] = "deprecated"
             spec.items[item_id]["deprecated_by"] = source_id
 
-    elif action == "moves":
+    elif action == "moved":
         new_id = ref.get("to", "")
         if not new_id:
             return
@@ -734,7 +734,7 @@ def _apply_ref(spec: SpecSnapshot, source_id: str, action: str,
                     child_data["category"] = new_child_id.split(".")[0]
                 spec.items[new_child_id] = _ordered_item(child_data)
 
-    elif action == "unfulfills":
+    elif action == "unfulfilled":
         if item_id in spec.items:
             item = spec.items[item_id]
             if item.get("status") == "fulfilled":
@@ -864,22 +864,22 @@ def validate_spec_ops(spec: SpecSnapshot,
             errors.append(f"{prefix}: unknown action '{action}'")
             continue
 
-        if action == "adds":
+        if action == "added":
             if not ref.get("title"):
-                errors.append(f"{prefix}: 'adds' requires 'title'")
+                errors.append(f"{prefix}: 'added' requires 'title'")
             if spec.has_item(item_id):
                 errors.append(
                     f"{prefix}: item '{item_id}' already exists "
-                    f"(use 'modifies' to change it)")
+                    f"(use 'modified' to change it)")
 
-        elif action in ("modifies", "deprecates"):
+        elif action in ("modified", "deprecated"):
             if not spec.has_item(item_id):
                 errors.append(
                     f"{prefix}: item '{item_id}' not found in spec")
 
-        elif action == "moves":
+        elif action == "moved":
             if not ref.get("to"):
-                errors.append(f"{prefix}: 'moves' requires 'to'")
+                errors.append(f"{prefix}: 'moved' requires 'to'")
             elif spec.has_item(ref["to"]):
                 errors.append(
                     f"{prefix}: target '{ref['to']}' already exists")
@@ -887,7 +887,7 @@ def validate_spec_ops(spec: SpecSnapshot,
                 errors.append(
                     f"{prefix}: item '{item_id}' not found in spec")
 
-        elif action == "fulfills":
+        elif action == "fulfilled":
             if not spec.has_item(item_id):
                 errors.append(
                     f"{prefix}: item '{item_id}' not found in spec")
@@ -895,7 +895,7 @@ def validate_spec_ops(spec: SpecSnapshot,
                 errors.append(
                     f"{prefix}: item '{item_id}' is deprecated")
 
-        elif action == "unfulfills":
+        elif action == "unfulfilled":
             if not spec.has_item(item_id):
                 errors.append(
                     f"{prefix}: item '{item_id}' not found in spec")
@@ -904,7 +904,7 @@ def validate_spec_ops(spec: SpecSnapshot,
                     f"{prefix}: item '{item_id}' is not fulfilled")
             if not ref.get("reason"):
                 errors.append(
-                    f"{prefix}: 'unfulfills' requires 'reason'")
+                    f"{prefix}: 'unfulfilled' requires 'reason'")
 
     return errors
 
@@ -1001,7 +1001,8 @@ def fulfillment_status(spec: SpecSnapshot,
             1 for t in required_info if t["status"] == "completed")
         total = len(required_info)
         has_reqs = total > 0
-        ready = has_reqs and completed_count == total
+        ready = (has_reqs and completed_count == total
+                 and status != "fulfilled")
 
         result[item_id] = {
             "type": item_data.get("type", ""),

@@ -1,8 +1,3 @@
----
-name: kf-compact-archive
-description: Remove archived and completed track directories from the working tree while preserving recovery via git history with rich metadata tracking
----
-
 # Compact Archive
 
 Remove archived (`_archive/`) and completed track directories from the working tree while preserving access via git history. Records rich metadata about each compaction point for future recovery.

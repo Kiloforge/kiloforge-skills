@@ -4,7 +4,9 @@
 Run: python3 -m unittest kf-bin/tests/test_spec.py -v
 """
 
+import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -175,7 +177,7 @@ class TestMaterialize(unittest.TestCase):
     def test_fulfills_via_op(self):
         base = self._base_snapshot()
         op = SpecOp(name="fulfill-auth")
-        op.add_operation("fulfills", "auth.oauth2")
+        op.add_operation("fulfilled", "auth.oauth2")
         result = materialize(base, spec_ops=[op])
         self.assertEqual(result.get_item("auth.oauth2")["status"], "fulfilled")
         self.assertEqual(result.get_item("auth.oauth2")["fulfilled_by"],
@@ -184,7 +186,7 @@ class TestMaterialize(unittest.TestCase):
     def test_adds_via_op(self):
         base = self._base_snapshot()
         op = SpecOp(name="add-mfa")
-        op.add_operation("adds", "auth.mfa",
+        op.add_operation("added", "auth.mfa",
                          title="MFA", priority="high",
                          description="TOTP-based MFA")
         result = materialize(base, spec_ops=[op])
@@ -198,7 +200,7 @@ class TestMaterialize(unittest.TestCase):
         """If item already exists, adds is a no-op."""
         base = self._base_snapshot()
         op = SpecOp(name="dup")
-        op.add_operation("adds", "auth.oauth2", title="Different Title")
+        op.add_operation("added", "auth.oauth2", title="Different Title")
         result = materialize(base, spec_ops=[op])
         # Original title preserved (first creator wins)
         self.assertEqual(result.get_item("auth.oauth2")["title"], "OAuth2")
@@ -206,7 +208,7 @@ class TestMaterialize(unittest.TestCase):
     def test_modifies(self):
         base = self._base_snapshot()
         op = SpecOp(name="mod")
-        op.add_operation("modifies", "api.rate-limiting",
+        op.add_operation("modified", "api.rate-limiting",
                          description="Sliding window algorithm")
         result = materialize(base, spec_ops=[op])
         item = result.get_item("api.rate-limiting")
@@ -217,7 +219,7 @@ class TestMaterialize(unittest.TestCase):
     def test_deprecates(self):
         base = self._base_snapshot()
         op = SpecOp(name="dep")
-        op.add_operation("deprecates", "auth.oauth2")
+        op.add_operation("deprecated", "auth.oauth2")
         result = materialize(base, spec_ops=[op])
         self.assertEqual(result.get_item("auth.oauth2")["status"],
                          "deprecated")
@@ -225,7 +227,7 @@ class TestMaterialize(unittest.TestCase):
     def test_moves(self):
         base = self._base_snapshot()
         op = SpecOp(name="mv")
-        op.add_operation("moves", "auth.oauth2", to="identity.oauth2")
+        op.add_operation("moved", "auth.oauth2", to="identity.oauth2")
         result = materialize(base, spec_ops=[op])
         self.assertFalse(result.has_item("auth.oauth2"))
         self.assertTrue(result.has_item("identity.oauth2"))
@@ -244,7 +246,7 @@ class TestMaterialize(unittest.TestCase):
         snap.add_item("other.thing", "Other", category="other")
 
         op = SpecOp(name="mv")
-        op.add_operation("moves", "legacy.auth", to="identity.auth")
+        op.add_operation("moved", "legacy.auth", to="identity.auth")
         result = materialize(snap, spec_ops=[op])
         self.assertFalse(result.has_item("legacy.auth"))
         self.assertFalse(result.has_item("legacy.auth.session"))
@@ -259,9 +261,9 @@ class TestMaterialize(unittest.TestCase):
         base = self._base_snapshot()
         base.snapshot_after_ops = ["old-op"]
         old_op = SpecOp(name="old-op")
-        old_op.add_operation("fulfills", "auth.oauth2")
+        old_op.add_operation("fulfilled", "auth.oauth2")
         new_op = SpecOp(name="new-op")
-        new_op.add_operation("fulfills", "api.rate-limiting")
+        new_op.add_operation("fulfilled", "api.rate-limiting")
         result = materialize(base, spec_ops=[old_op, new_op])
         self.assertEqual(result.get_item("auth.oauth2")["status"], "active")
         self.assertEqual(result.get_item("api.rate-limiting")["status"],
@@ -272,18 +274,18 @@ class TestMaterialize(unittest.TestCase):
         snap = SpecSnapshot()
         snap.add_item("auth.flow", "Auth Flow")
         op1 = SpecOp(name="20260321-first")
-        op1.add_operation("modifies", "auth.flow", description="First")
+        op1.add_operation("modified", "auth.flow", description="First")
         op2 = SpecOp(name="20260322-second")
-        op2.add_operation("modifies", "auth.flow", description="Second")
+        op2.add_operation("modified", "auth.flow", description="Second")
         result = materialize(snap, spec_ops=[op1, op2])
         self.assertEqual(result.get_item("auth.flow")["description"], "Second")
 
     def test_multiple_operations_per_op_file(self):
         base = self._base_snapshot()
         op = SpecOp(name="batch")
-        op.add_operation("fulfills", "auth.oauth2")
-        op.add_operation("adds", "auth.mfa", title="MFA", description="TOTP")
-        op.add_operation("deprecates", "api.rate-limiting")
+        op.add_operation("fulfilled", "auth.oauth2")
+        op.add_operation("added", "auth.mfa", title="MFA", description="TOTP")
+        op.add_operation("deprecated", "api.rate-limiting")
         result = materialize(base, spec_ops=[op])
         self.assertEqual(result.get_item("auth.oauth2")["status"], "fulfilled")
         self.assertTrue(result.has_item("auth.mfa"))
@@ -301,10 +303,10 @@ class TestMaterialize(unittest.TestCase):
         """Actions on non-existent items are no-ops (except adds)."""
         base = self._base_snapshot()
         op = SpecOp(name="bad")
-        op.add_operation("fulfills", "nonexistent.item")
-        op.add_operation("modifies", "nonexistent.item", title="X")
-        op.add_operation("deprecates", "nonexistent.item")
-        op.add_operation("moves", "nonexistent.item", to="new.place")
+        op.add_operation("fulfilled", "nonexistent.item")
+        op.add_operation("modified", "nonexistent.item", title="X")
+        op.add_operation("deprecated", "nonexistent.item")
+        op.add_operation("moved", "nonexistent.item", to="new.place")
         result = materialize(base, spec_ops=[op])
         self.assertEqual(len(result.items), 2)
 
@@ -371,10 +373,10 @@ class TestSpecOp(unittest.TestCase):
     def test_create_and_load(self):
         op = SpecOp(name="test-op", author="architect-1",
                     description="Initial spec")
-        op.add_operation("adds", "auth.oauth2",
+        op.add_operation("added", "auth.oauth2",
                          title="OAuth2", priority="high",
                          description="OAuth2 auth flow")
-        op.add_operation("adds", "api.rate-limiting",
+        op.add_operation("added", "api.rate-limiting",
                          title="Rate Limiting")
 
         path = self.spec_dir / "test-op.yaml"
@@ -383,12 +385,12 @@ class TestSpecOp(unittest.TestCase):
         loaded = SpecOp.load(path)
         self.assertEqual(loaded.author, "architect-1")
         self.assertEqual(len(loaded.operations), 2)
-        self.assertEqual(loaded.operations[0]["action"], "adds")
+        self.assertEqual(loaded.operations[0]["action"], "added")
         self.assertEqual(loaded.operations[0]["item"], "auth.oauth2")
 
     def test_create_spec_op_with_timestamp(self):
         ops = [
-            {"action": "adds", "item": "auth.oauth2", "title": "OAuth2"},
+            {"action": "added", "item": "auth.oauth2", "title": "OAuth2"},
         ]
         path = create_spec_op(self.spec_dir, ops,
                               author="test", slug="init")
@@ -404,7 +406,7 @@ class TestSpecOp(unittest.TestCase):
         for i, name in enumerate(["20260321-a.yaml", "20260322-b.yaml",
                                    "20260320-c.yaml"]):
             op = SpecOp(name=name.replace(".yaml", ""))
-            op.add_operation("adds", f"item.{i}", title=f"Item {i}")
+            op.add_operation("added", f"item.{i}", title=f"Item {i}")
             op.save(self.spec_dir / name)
 
         ops = load_spec_ops(self.spec_dir)
@@ -422,11 +424,11 @@ class TestMaterializeWithOps(unittest.TestCase):
         snap = SpecSnapshot()
         # First op adds an item
         op1 = SpecOp(name="01-init")
-        op1.add_operation("adds", "auth.oauth2",
+        op1.add_operation("added", "auth.oauth2",
                           title="OAuth2", priority="high")
         # Second op fulfills it (after assessment)
         op2 = SpecOp(name="02-fulfill")
-        op2.add_operation("fulfills", "auth.oauth2")
+        op2.add_operation("fulfilled", "auth.oauth2")
         result = materialize(snap, spec_ops=[op1, op2])
         self.assertTrue(result.has_item("auth.oauth2"))
         self.assertEqual(result.get_item("auth.oauth2")["status"], "fulfilled")
@@ -434,8 +436,8 @@ class TestMaterializeWithOps(unittest.TestCase):
     def test_ops_only_no_tracks(self):
         snap = SpecSnapshot()
         op = SpecOp(name="init")
-        op.add_operation("adds", "auth.oauth2", title="OAuth2")
-        op.add_operation("adds", "api.rate", title="Rate Limiting")
+        op.add_operation("added", "auth.oauth2", title="OAuth2")
+        op.add_operation("added", "api.rate", title="Rate Limiting")
         result = materialize(snap, spec_ops=[op])
         self.assertEqual(len(result.items), 2)
 
@@ -445,7 +447,7 @@ class TestMaterializeWithOps(unittest.TestCase):
         snap.add_item("auth.oauth2", "OAuth2")
 
         old_op = SpecOp(name="old-op")
-        old_op.add_operation("deprecates", "auth.oauth2")
+        old_op.add_operation("deprecated", "auth.oauth2")
 
         result = materialize(snap, spec_ops=[old_op])
         # Should be skipped — already baked
@@ -458,7 +460,7 @@ class TestMaterializeWithOps(unittest.TestCase):
         snap.items["auth.oauth2"]["fulfilled_by"] = "old_track"
 
         op = SpecOp(name="revert")
-        op.add_operation("unfulfills", "auth.oauth2",
+        op.add_operation("unfulfilled", "auth.oauth2",
                          reason="Implementation was incomplete")
 
         result = materialize(snap, spec_ops=[op])
@@ -473,7 +475,7 @@ class TestMaterializeWithOps(unittest.TestCase):
         snap.add_item("auth.oauth2", "OAuth2")  # status=active
 
         op = SpecOp(name="revert")
-        op.add_operation("unfulfills", "auth.oauth2", reason="test")
+        op.add_operation("unfulfilled", "auth.oauth2", reason="test")
 
         result = materialize(snap, spec_ops=[op])
         self.assertEqual(result.get_item("auth.oauth2")["status"], "active")
@@ -501,10 +503,10 @@ class TestValidation(unittest.TestCase):
     def test_track_ref_rejects_spec_op_actions(self):
         spec = self._base_spec()
         refs = [
-            {"action": "adds", "item": "new.thing", "title": "New"},
-            {"action": "fulfills", "item": "api.rate"},
-            {"action": "modifies", "item": "auth.oauth2", "title": "Changed"},
-            {"action": "deprecates", "item": "api.rate"},
+            {"action": "added", "item": "new.thing", "title": "New"},
+            {"action": "fulfilled", "item": "api.rate"},
+            {"action": "modified", "item": "auth.oauth2", "title": "Changed"},
+            {"action": "deprecated", "item": "api.rate"},
         ]
         errors = validate_spec_refs(spec, refs)
         self.assertEqual(len(errors), 4)
@@ -529,11 +531,11 @@ class TestValidation(unittest.TestCase):
     def test_valid_spec_ops(self):
         spec = self._base_spec()
         ops = [
-            {"action": "adds", "item": "auth.mfa", "title": "MFA"},
-            {"action": "fulfills", "item": "api.rate"},
-            {"action": "modifies", "item": "api.rate",
+            {"action": "added", "item": "auth.mfa", "title": "MFA"},
+            {"action": "fulfilled", "item": "api.rate"},
+            {"action": "modified", "item": "api.rate",
              "description": "Updated"},
-            {"action": "unfulfills", "item": "auth.oauth2",
+            {"action": "unfulfilled", "item": "auth.oauth2",
              "reason": "Incomplete"},
         ]
         errors = validate_spec_ops(spec, ops)
@@ -552,33 +554,33 @@ class TestValidation(unittest.TestCase):
 
     def test_spec_ops_unfulfills_requires_reason(self):
         spec = self._base_spec()
-        ops = [{"action": "unfulfills", "item": "auth.oauth2"}]
+        ops = [{"action": "unfulfilled", "item": "auth.oauth2"}]
         errors = validate_spec_ops(spec, ops)
         self.assertIn("requires 'reason'",
                        " ".join(errors))
 
     def test_spec_ops_unfulfills_requires_fulfilled_status(self):
         spec = self._base_spec()
-        ops = [{"action": "unfulfills", "item": "api.rate",
+        ops = [{"action": "unfulfilled", "item": "api.rate",
                 "reason": "test"}]
         errors = validate_spec_ops(spec, ops)
         self.assertIn("not fulfilled", " ".join(errors))
 
     def test_spec_ops_adds_duplicate(self):
         spec = self._base_spec()
-        ops = [{"action": "adds", "item": "auth.oauth2", "title": "Dup"}]
+        ops = [{"action": "added", "item": "auth.oauth2", "title": "Dup"}]
         errors = validate_spec_ops(spec, ops)
         self.assertIn("already exists", " ".join(errors))
 
     def test_spec_ops_moves_validation(self):
         spec = self._base_spec()
         # Missing 'to'
-        ops = [{"action": "moves", "item": "auth.oauth2"}]
+        ops = [{"action": "moved", "item": "auth.oauth2"}]
         errors = validate_spec_ops(spec, ops)
         self.assertIn("requires 'to'", " ".join(errors))
 
         # Target already exists
-        ops = [{"action": "moves", "item": "auth.oauth2", "to": "api.rate"}]
+        ops = [{"action": "moved", "item": "auth.oauth2", "to": "api.rate"}]
         errors = validate_spec_ops(spec, ops)
         self.assertIn("already exists", " ".join(errors))
 
@@ -608,9 +610,9 @@ class TestItemTypes(unittest.TestCase):
     def test_materialize_preserves_type(self):
         snap = SpecSnapshot()
         op = SpecOp(name="init")
-        op.add_operation("adds", "product.cats.browse",
+        op.add_operation("added", "product.cats.browse",
                          title="Browse Cats", description="User browses cats")
-        op.add_operation("adds", "tech.api.cursor-pagination",
+        op.add_operation("added", "tech.api.cursor-pagination",
                          title="Cursor Pagination",
                          description="Use cursor-based pagination")
         result = materialize(snap, spec_ops=[op])
@@ -695,17 +697,17 @@ class TestDraftWorkflow(unittest.TestCase):
         shutil.rmtree(self.tmpdir)
 
     def test_draft_add_creates_file(self):
-        path = draft_add(self.spec_dir, "architect-1", "adds", "auth.oauth2",
+        path = draft_add(self.spec_dir, "architect-1", "added", "auth.oauth2",
                          title="OAuth2", priority="high")
         self.assertTrue(path.exists())
         self.assertIn("_draft-architect-1", path.name)
 
     def test_draft_add_accumulates(self):
-        draft_add(self.spec_dir, "architect-1", "adds", "auth.oauth2",
+        draft_add(self.spec_dir, "architect-1", "added", "auth.oauth2",
                   title="OAuth2")
-        draft_add(self.spec_dir, "architect-1", "adds", "api.rate",
+        draft_add(self.spec_dir, "architect-1", "added", "api.rate",
                   title="Rate Limiting")
-        draft_add(self.spec_dir, "architect-1", "adds", "auth.mfa",
+        draft_add(self.spec_dir, "architect-1", "added", "auth.mfa",
                   title="MFA")
 
         op = draft_load(self.spec_dir, "architect-1")
@@ -714,9 +716,9 @@ class TestDraftWorkflow(unittest.TestCase):
 
     def test_draft_survives_reload(self):
         """Simulate context compression — draft persists on disk."""
-        draft_add(self.spec_dir, "arch-1", "adds", "auth.oauth2",
+        draft_add(self.spec_dir, "arch-1", "added", "auth.oauth2",
                   title="OAuth2")
-        draft_add(self.spec_dir, "arch-1", "adds", "api.rate",
+        draft_add(self.spec_dir, "arch-1", "added", "api.rate",
                   title="Rate")
 
         # Simulate restart: clear Python state, reload from disk
@@ -724,15 +726,15 @@ class TestDraftWorkflow(unittest.TestCase):
         self.assertEqual(len(op.operations), 2)
 
         # Continue accumulating
-        draft_add(self.spec_dir, "arch-1", "modifies", "api.rate",
+        draft_add(self.spec_dir, "arch-1", "modified", "api.rate",
                   description="Updated")
         op = draft_load(self.spec_dir, "arch-1")
         self.assertEqual(len(op.operations), 3)
 
     def test_draft_finalize(self):
-        draft_add(self.spec_dir, "arch-1", "adds", "auth.oauth2",
+        draft_add(self.spec_dir, "arch-1", "added", "auth.oauth2",
                   title="OAuth2")
-        draft_add(self.spec_dir, "arch-1", "adds", "api.rate",
+        draft_add(self.spec_dir, "arch-1", "added", "api.rate",
                   title="Rate")
 
         path = draft_finalize(self.spec_dir, "arch-1",
@@ -754,7 +756,7 @@ class TestDraftWorkflow(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_draft_discard(self):
-        draft_add(self.spec_dir, "arch-1", "adds", "auth.oauth2",
+        draft_add(self.spec_dir, "arch-1", "added", "auth.oauth2",
                   title="OAuth2")
         self.assertTrue(draft_discard(self.spec_dir, "arch-1"))
         self.assertIsNone(draft_load(self.spec_dir, "arch-1"))
@@ -763,8 +765,8 @@ class TestDraftWorkflow(unittest.TestCase):
         self.assertFalse(draft_discard(self.spec_dir, "nonexistent"))
 
     def test_draft_list(self):
-        draft_add(self.spec_dir, "arch-1", "adds", "a.b", title="A")
-        draft_add(self.spec_dir, "arch-2", "adds", "c.d", title="C")
+        draft_add(self.spec_dir, "arch-1", "added", "a.b", title="A")
+        draft_add(self.spec_dir, "arch-2", "added", "c.d", title="C")
 
         drafts = draft_list(self.spec_dir)
         self.assertEqual(len(drafts), 2)
@@ -776,16 +778,16 @@ class TestDraftWorkflow(unittest.TestCase):
         """Drafts are not included in materialization."""
         # Create a finalized op
         create_spec_op(self.spec_dir,
-                       [{"action": "adds", "item": "a.b", "title": "A"}],
+                       [{"action": "added", "item": "a.b", "title": "A"}],
                        author="test")
         # Create a draft
-        draft_add(self.spec_dir, "arch-1", "adds", "c.d", title="C")
+        draft_add(self.spec_dir, "arch-1", "added", "c.d", title="C")
 
         ops = load_spec_ops(self.spec_dir)
         self.assertEqual(len(ops), 1)  # only finalized
 
     def test_check_uncommitted_drafts(self):
-        draft_add(self.spec_dir, "arch-1", "adds", "a.b", title="A")
+        draft_add(self.spec_dir, "arch-1", "added", "a.b", title="A")
         warnings = check_uncommitted_drafts(self.spec_dir)
         self.assertEqual(len(warnings), 1)
         self.assertIn("_draft-arch-1", warnings[0])
@@ -797,8 +799,8 @@ class TestDraftWorkflow(unittest.TestCase):
 
     def test_multiple_holders_independent(self):
         """Different holders have independent drafts."""
-        draft_add(self.spec_dir, "arch-1", "adds", "a.b", title="A")
-        draft_add(self.spec_dir, "arch-2", "adds", "c.d", title="C")
+        draft_add(self.spec_dir, "arch-1", "added", "a.b", title="A")
+        draft_add(self.spec_dir, "arch-2", "added", "c.d", title="C")
 
         op1 = draft_load(self.spec_dir, "arch-1")
         op2 = draft_load(self.spec_dir, "arch-2")
@@ -1070,6 +1072,79 @@ class TestSpecRefsForTrack(unittest.TestCase):
         refs = spec_refs_for_track(track, spec=spec)
         self.assertEqual(len(refs), 1)
         self.assertNotIn("item_title", refs[0])
+
+
+class TestSpecOpsFromRefNonAscii(unittest.TestCase):
+    """Test load_spec_ops_from_ref with non-ASCII content.
+
+    Regression test: git cat-file --batch reports sizes in bytes but
+    Python text mode slices by characters. Multi-byte UTF-8 chars cause
+    position drift, silently dropping spec ops after the one with non-ASCII.
+    """
+
+    def setUp(self):
+        self.tmpdir = Path(tempfile.mkdtemp())
+        self.orig_dir = os.getcwd()
+        os.chdir(self.tmpdir)
+        subprocess.run(["git", "init"], capture_output=True, check=True)
+        subprocess.run(["git", "config", "user.email", "test@test.com"],
+                       capture_output=True, check=True)
+        subprocess.run(["git", "config", "user.name", "Test"],
+                       capture_output=True, check=True)
+        subprocess.run(["git", "config", "commit.gpgsign", "false"],
+                       capture_output=True, check=True)
+
+    def tearDown(self):
+        os.chdir(self.orig_dir)
+        shutil.rmtree(self.tmpdir)
+
+    def test_non_ascii_spec_ops_from_ref(self):
+        """Spec op files with em dashes and accented chars must all load."""
+        from lib.spec import load_spec_ops_from_ref
+
+        spec_dir = self.tmpdir / ".agent" / "kf" / "spec"
+        spec_dir.mkdir(parents=True)
+
+        # Op 1: ASCII only
+        (spec_dir / "20260322-000000Z-aaa-init.yaml").write_text(
+            'date: "2026-03-22"\nauthor: architect\n'
+            'description: "Initial spec"\n'
+            'operations:\n'
+            '  - action: added\n'
+            '    item: product.auth.login\n'
+            '    title: "User Login"\n'
+        )
+
+        # Op 2: non-ASCII (em dash, accents)
+        (spec_dir / "20260322-000001Z-bbb-update.yaml").write_text(
+            'date: "2026-03-22"\nauthor: architect\n'
+            'description: "Update — résumé of changes"\n'
+            'operations:\n'
+            '  - action: added\n'
+            '    item: product.api.résumé\n'
+            '    title: "Résumé endpoint — user profiles"\n'
+        )
+
+        # Op 3: after non-ASCII — this would be dropped by the old bug
+        (spec_dir / "20260322-000002Z-ccc-more.yaml").write_text(
+            'date: "2026-03-22"\nauthor: architect\n'
+            'description: "More items"\n'
+            'operations:\n'
+            '  - action: added\n'
+            '    item: product.data.export\n'
+            '    title: "Data Export"\n'
+        )
+
+        subprocess.run(["git", "add", "."], capture_output=True, check=True)
+        subprocess.run(["git", "commit", "-m", "spec ops"],
+                       capture_output=True, check=True)
+
+        ops = load_spec_ops_from_ref("HEAD", spec_dir_rel=".agent/kf/spec")
+        self.assertEqual(len(ops), 3,
+                         f"Expected 3 ops but got {len(ops)}: {[o.name for o in ops]}")
+        self.assertEqual(ops[0].operations[0]["item"], "product.auth.login")
+        self.assertIn("résumé", ops[1].description)
+        self.assertEqual(ops[2].operations[0]["item"], "product.data.export")
 
 
 if __name__ == "__main__":

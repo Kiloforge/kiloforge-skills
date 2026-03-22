@@ -71,98 +71,45 @@ The main worktree is a merge target only — no agent should ever checkout branc
 
 ---
 
-## Phase 1: Validation
+## Phase 1: Claim Track
 
-### Step 1 — Run pre-flight check
+### Step 1 — Validate and claim in one step
+
+If no track ID argument was provided, **HALT** with usage instructions.
+
+Otherwise, run a single command that validates the track, checks dependencies, and acquires the claim:
 
 ```bash
-eval "$(~/.kf/bin/kf-preflight.py)"
+eval "$(~/.kf/bin/kf-preflight.py)" && ~/.kf/bin/kf-track.py claim {trackId}
 ```
 
-This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
+This command does everything in one step:
+1. Reads `PRIMARY_BRANCH` from project config
+2. Loads track state from the primary branch
+3. Validates the track exists and is not completed/archived
+4. Checks all dependencies are satisfied
+5. Acquires the worktree claim lock atomically
 
-**IMPORTANT: Your home branch is almost always stale.** Always read track state from the primary branch using `--ref ${PRIMARY_BRANCH}` on CLI commands or `git show ${PRIMARY_BRANCH}:<path>` for file reads. Implementation branches are always created from `${PRIMARY_BRANCH}` directly. Do NOT use `git reset --hard`.
+**If exit code is 0:** the track is claimed. The output contains structured key=value lines (`PRIMARY_BRANCH=`, `TITLE=`, `TYPE=`, `SPEC_CONSTRAINED_BY=`, etc.). Parse these and proceed.
 
-### Step 2 — Parse track ID
+**If exit code is non-zero:** the error message explains why (track not found, already completed, deps blocked, claim held by another worktree). **HALT.**
 
-If no argument was provided:
+**CRITICAL — Primary branch usage:**
+- The `claim` output includes `PRIMARY_BRANCH=<value>`. Use this value for ALL subsequent commands.
+- **NEVER hardcode `main`** — always use `${PRIMARY_BRANCH}` from the claim output.
+- **NEVER read local `.agent/kf/` files directly** — your worktree is stale. Always use `--ref ${PRIMARY_BRANCH}` or `git show ${PRIMARY_BRANCH}:<path>`.
+- Implementation branches are always created from `${PRIMARY_BRANCH}`.
 
-```
-ERROR: Track ID required.
-
-Usage: /kf-developer <track-id>
-
-To see available tracks, run `~/.kf/bin/kf-track.py list` or /kf-architect to create new ones.
-```
-
-**HALT.**
-
-### Step 3 — Validate track and acquire claim
-
-1. **Check track exists and get its status:**
-   ```bash
-   ~/.kf/bin/kf-track.py get {trackId} --ref ${PRIMARY_BRANCH}
-   ```
-   If not found (exits non-zero):
-   ```
-   ERROR: Track not found — {trackId}
-
-   Available tracks:
-   {output from `~/.kf/bin/kf-track.py list --active --ref ${PRIMARY_BRANCH}`}
-   ```
-   **HALT.**
-
-   If track status is `completed`:
-   ```
-   ERROR: Track already complete — {trackId}
-
-   This track has already been implemented and marked complete on ${PRIMARY_BRANCH}.
-   ```
-   **HALT.**
-
-2. **Acquire the worktree claim lock:**
-   ```bash
-   ~/.kf/bin/kf-claim.py acquire {trackId}
-   ```
-
-   This atomically claims the track for this worktree. If another worktree already
-   has it, the command fails with a clear error showing which worktree holds the claim.
-   No branch scanning or worktree enumeration is needed — the claim lock handles it.
-
-   If the claim fails: **HALT** — the error output tells you who has the track.
-
-3. **Check dependency graph — all prerequisites must be completed:**
-   ```bash
-   ~/.kf/bin/kf-track.py deps check {trackId} --ref ${PRIMARY_BRANCH}
-   ```
-
-   If the command exits non-zero (BLOCKED), **release the claim first**, then halt:
-   ```bash
-   ~/.kf/bin/kf-claim.py release
-   ```
-   ```
-   ERROR: Dependencies not met — {trackId}
-
-   {output from kf-track deps check}
-
-   Wait for these tracks to complete, or ask the architect to restructure dependencies.
-   ```
-   **HALT.**
-
-   If `deps.yaml` does not exist, skip this check (backwards compatibility).
-
-### Step 4 — Enter developer mode
+### Step 2 — Enter developer mode
 
 ```
 ================================================================================
-                    KILOFORGE DEVELOPER — TRACK VALIDATED
+                    KILOFORGE DEVELOPER — TRACK CLAIMED
 ================================================================================
 
 Track:    {trackId}
-Title:    {title from track.yaml}
-Type:     {type}
-Tasks:    {total tasks from track.yaml plan}
-Phases:   {total phases}
+Title:    {TITLE from claim output}
+Type:     {TYPE from claim output}
 
 Beginning implementation:
 1. Create branch kf/{type}/{trackId} from ${PRIMARY_BRANCH}
@@ -182,7 +129,7 @@ ACTIVE ROLE: kf-developer — track {trackId} — skill at ~/.claude/skills/kf-d
 
 ## Phase 2: Setup
 
-### Step 5 — Create implementation branch
+### Step 3 — Create implementation branch
 
 Create an implementation branch from the primary branch:
 
@@ -192,7 +139,7 @@ git checkout -b kf/{type}/{trackId} ${PRIMARY_BRANCH}
 
 Branch naming: `kf/{type}/{trackId}` where type comes from metadata (e.g., `kf/feature/auth_20250115100000Z`). The implementation branch is always created from `${PRIMARY_BRANCH}` to ensure it starts with the latest code.
 
-#### Step 5b — Check for stash branches
+#### Step 3b — Check for stash branches
 
 After creating the implementation branch, check if a previous worker stashed work for this track:
 
@@ -207,14 +154,14 @@ fi
 
 If a stash branch exists, merge it into the fresh implementation branch. This recovers any work saved by a previous agent that was interrupted before completing the track. Delete the stash branch after merging — it's no longer needed.
 
-### Step 6 — Load workflow configuration
+### Step 4 — Load workflow configuration
 
 Read `.agent/kf/workflow.yaml` and parse:
 - Verification commands (e.g., `make test`, `make e2e`)
 - TDD strictness level
 - Commit strategy
 
-### Step 7 — Load track context
+### Step 5 — Load track context
 
 Load track context via CLI (now from the working tree, which is based on the primary branch):
 ```bash
@@ -228,7 +175,12 @@ Load track context via CLI (now from the working tree, which is based on the pri
 
 # Check conflict risk with other active tracks
 ~/.kf/bin/kf-track.py conflicts list {trackId} --ref ${PRIMARY_BRANCH}
+
+# Check spec context — what product items this track fulfills and what technical constraints apply
+~/.kf/bin/kf-track.py spec validate {trackId} --ref ${PRIMARY_BRANCH}
 ```
+
+The `spec validate` command shows which product spec items this track is `required-for` (deliverables) and which technical spec items it is `constrained-by` (implementation rules to follow). If the track has no `spec_refs` or no spec exists, this is silently skipped.
 
 Also read project context:
 - `.agent/kf/product.yaml`
@@ -239,7 +191,7 @@ Also read project context:
 
 ## Phase 3: Implementation
 
-### Step 8 — Execute the plan
+### Step 6 — Execute the plan
 
 Follow the exact same implementation workflow as `/kf-implement`:
 
@@ -251,18 +203,62 @@ Follow the exact same implementation workflow as `/kf-implement`:
 - Run phase verification at the end of each phase
 - **Do NOT pause between phases** — proceed continuously through all phases without waiting for user approval
 
-### Step 9 — Mark track complete
+### Step 7 — Pre-completion spec check
 
-After all tasks are done, update all tracking files and commit:
+Before marking the track complete, verify alignment with spec items:
 
-1. **Update track status** using `kf-track` (updates `tracks.yaml`, prunes `deps.yaml`, and cleans `conflicts.yaml` automatically):
+```bash
+~/.kf/bin/kf-track.py spec validate {trackId}
+```
+
+If the track has `constrained-by` or `relates-to` spec refs, review each one:
+
+- **constrained-by** — Read the technical spec item's description. Verify the implementation actually follows the constraint (e.g., if `tech.api.cursor-pagination` is listed, confirm list endpoints use cursor pagination, not offset). If a constraint was not followed, fix the implementation before proceeding.
+- **relates-to** — Read the related spec item. Verify the implementation is consistent with it (e.g., no conflicting patterns or duplicated functionality). This is informational — note any concerns but don't block completion.
+
+If the track has no spec_refs or no spec exists, skip this step.
+
+### Step 8 — Mark track complete
+
+After all tasks are done and spec alignment is verified, update all tracking files and commit:
+
+1. **Update track status** using `kf-track` (updates meta.yaml and cleans conflicts automatically):
    ```bash
    ~/.kf/bin/kf-track.py update {trackId} --status completed
    ```
 2. Verify all tasks are marked done: `~/.kf/bin/kf-track-content.py progress {trackId}`
 
+3. **Assess spec fulfillment** (if the track has `required-for` spec refs):
+
+   ```bash
+   ~/.kf/bin/kf-track.py spec validate {trackId}
+   ```
+
+   Check the fulfillment status in the output. Only items this track is `required-for` are relevant. Look for `READY` lines.
+
+   **If any items show `READY`** (this track was the last required track), assess each:
+
+   - Re-read the product spec item's title, description, and priority
+   - Review the implementation across all contributing tracks (listed in the output)
+   - Check any `constrained-by` technical spec items — verify the implementation follows each constraint
+   - Verify the capability described by the product spec item actually works end-to-end
+
+   If the assessment passes:
+   ```bash
+   ~/.kf/bin/kf-track.py spec op fulfilled <item-id>
+   ~/.kf/bin/kf-track.py spec op finalize --description "Fulfilled <item-id>: <brief rationale>"
+   git add .agent/kf/spec/
+   git commit -m "chore: fulfill spec item <item-id>"
+   ```
+
+   If the assessment fails, report the gaps but do **not** mark as fulfilled.
+
+   **If no items show `READY`** or the track has no `required-for` refs, skip assessment.
+
+   **If no spec exists or no spec_refs**, skip this step entirely.
+
 ```bash
-git add .agent/kf/tracks.yaml .agent/kf/tracks/deps.yaml .agent/kf/tracks/conflicts.yaml .agent/kf/tracks/{trackId}/
+git add .agent/kf/tracks/{trackId}/
 git commit -m "chore: mark track {trackId} complete"
 ```
 
@@ -270,7 +266,7 @@ git commit -m "chore: mark track {trackId} complete"
 
 ## Phase 4: Merge
 
-### Step 10 — Report completion and merge (or wait)
+### Step 9 — Report completion and merge (or wait)
 
 By default, auto-merge is enabled — proceed directly to the merge sequence after implementation completes.
 
@@ -292,13 +288,13 @@ Ready to merge. Say "merge" to begin the lock -> rebase -> verify -> merge seque
 
 If `--disable-auto-merge` was **not** provided (default): skip the pause and proceed directly to the merge sequence.
 
-### Step 11 — Merge sequence
+### Step 10 — Merge sequence
 
 When the user says "merge" (or immediately if auto-merge is enabled (default)), execute the full merge protocol. The developer performs an **implementation merge** — verification is mandatory.
 
 For the full merge protocol details, see `kf-merge-protocol/SKILL.md`.
 
-#### 11a. Pre-merge verification
+#### 10a. Pre-merge verification
 
 Run the full verification suite **before** acquiring the lock to avoid holding it during long test runs:
 
@@ -310,7 +306,7 @@ eval "$VERIFY_CMD"
 
 If verification fails, do **not** attempt to merge. Fix issues first.
 
-#### 11b. Merge via kf-merge
+#### 10b. Merge via kf-merge
 
 ```bash
 VERIFY_CMD="<commands from workflow.yaml>"
@@ -332,7 +328,7 @@ VERIFY_CMD="<commands from workflow.yaml>"
 
 **Exit code 3** means unresolved rebase conflicts — lock is STILL HELD. Resolve the source code conflicts (`git add` the resolved files, `git rebase --continue`), then re-run `kf-merge.py` (acquire is idempotent for the same holder). Only release the lock after merge completes or via explicit abort (`git rebase --abort && kf-merge-lock release`).
 
-#### 11c. Post-merge cleanup
+#### 10c. Post-merge cleanup
 
 After `kf-merge` succeeds:
 
@@ -367,7 +363,7 @@ Developer is ready for next track.
 ================================================================================
 ```
 
-### Step 11d — Auto-exit (if `--auto-exit` was provided)
+### Step 10d — Auto-exit (if `--auto-exit` was provided)
 
 If the `--auto-exit` flag was provided, exit the session after completion:
 
@@ -450,7 +446,7 @@ Detection is automatic. Run `kf-merge-lock status` to inspect current lock state
 ## Critical Rules
 
 1. **ALWAYS validate before implementing** — never start work on an invalid or claimed track
-2. **ALWAYS read track state from the primary branch** — resolve from `.agent/kf/config.yaml`, default `main`. Use `git show ${PRIMARY_BRANCH}:<path>`, not local working tree
+2. **ALWAYS use `${PRIMARY_BRANCH}` from claim output** — NEVER hardcode `main` or `master`. NEVER read local `.agent/kf/` files directly — always `--ref ${PRIMARY_BRANCH}` or `git show ${PRIMARY_BRANCH}:<path>`
 3. **NEVER push to remote** — all branches are local only
 4. **Auto-merge is the default** — only pause for explicit "merge" command when `--disable-auto-merge` is provided
 5. **ALWAYS verify after rebase** — full verification after rebase, before merge

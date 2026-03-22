@@ -366,6 +366,31 @@ def sort_conflicts_file():
 
 
 # --- Ref support helpers ---
+
+def _default_ref() -> Optional[str]:
+    """Auto-resolve ref from config when in a worktree.
+
+    If the current working directory is NOT the primary branch worktree,
+    returns the primary_branch from config so commands read from the
+    canonical state instead of the stale local working tree.
+    Returns None if we're on the primary branch (local reads are fine),
+    or if config doesn't exist yet (fresh setup).
+    """
+    if not CONFIG_FILE.exists():
+        return None  # Fresh setup — no config yet, use local files
+    try:
+        primary = _config_get_value("primary_branch") or "main"
+        current = subprocess.run(
+            ["git", "branch", "--show-current"],
+            capture_output=True, text=True, check=False
+        ).stdout.strip()
+    except Exception:
+        return None
+    if current == primary:
+        return None  # On primary branch — local reads are canonical
+    return primary
+
+
 def setup_ref(ref, need_deps=True):
     """Load registry from a git ref. Returns cleanup function."""
     global _registry
@@ -385,6 +410,7 @@ def cmd_add(args):
     track_type = "feature"
     status = "pending"
     deps_str = ""
+    spec_refs_json = ""
 
     i = 0
     while i < len(args):
@@ -396,13 +422,15 @@ def cmd_add(args):
             status = args[i + 1]; i += 2
         elif args[i] == "--deps":
             deps_str = args[i + 1]; i += 2
+        elif args[i] == "--spec-refs":
+            spec_refs_json = args[i + 1]; i += 2
         elif args[i].startswith("-"):
             print(f"Unknown option: {args[i]}", file=sys.stderr); return 1
         else:
             track_id = args[i]; i += 1
 
     if not track_id:
-        print('Usage: kf-track add <track-id> --title "..." [--type feature|bug|chore|refactor] [--status pending] [--deps "dep1,dep2"]', file=sys.stderr)
+        print('Usage: kf-track add <track-id> --title "..." [--type feature|bug|chore|refactor] [--status pending] [--deps "dep1,dep2"] [--spec-refs \'[...]\']', file=sys.stderr)
         return 1
     if not title:
         print("ERROR: --title is required", file=sys.stderr)
@@ -415,7 +443,20 @@ def cmd_add(args):
         return 1
 
     deps_list = [d.strip() for d in deps_str.split(",") if d.strip()] if deps_str else []
-    reg.add(track_id, title, type_=track_type, status=status, deps=deps_list, approved=False)
+
+    spec_refs = None
+    if spec_refs_json:
+        try:
+            spec_refs = json.loads(spec_refs_json)
+            if not isinstance(spec_refs, list):
+                print("ERROR: --spec-refs must be a JSON array", file=sys.stderr)
+                return 1
+        except json.JSONDecodeError as e:
+            print(f"ERROR: Invalid JSON for --spec-refs: {e}", file=sys.stderr)
+            return 1
+
+    reg.add(track_id, title, type_=track_type, status=status, deps=deps_list,
+            approved=False, spec_refs=spec_refs)
     reg.save(track_ids=[track_id])
 
     print(f"Added: {track_id}")
@@ -517,6 +558,8 @@ def cmd_get(args):
         print("Usage: kf-track get <track-id> [--ref <branch|commit>]", file=sys.stderr)
         return 1
 
+    if ref is None:
+        ref = _default_ref()
     if ref:
         cleanup = setup_ref(ref)
 
@@ -585,6 +628,8 @@ def cmd_list(args):
         else:
             print(f"Unknown argument: {args[i]}", file=sys.stderr); return 1
 
+    if ref is None:
+        ref = _default_ref()
     if ref:
         cleanup = setup_ref(ref)
 
@@ -708,6 +753,8 @@ def cmd_deps(args):
         else:
             filtered_args.append(args[i]); i += 1
 
+    if ref is None:
+        ref = _default_ref()
     if ref:
         cleanup = setup_ref(ref)
 
@@ -795,6 +842,8 @@ def cmd_conflicts(args):
         else:
             filtered_args.append(args[i]); i += 1
 
+    if ref is None:
+        ref = _default_ref()
     if ref:
         cleanup = setup_ref(ref)
 
@@ -1236,6 +1285,8 @@ def cmd_index(args):
         else:
             print(f"Unknown argument: {args[i]}", file=sys.stderr); return 1
 
+    if ref is None:
+        ref = _default_ref()
     if ref:
         reg = TracksRegistry.from_ref(ref)
         quick_links_content = run_git("show", f"{ref}:.agent/kf/quick-links.md")
@@ -1325,7 +1376,7 @@ def cmd_content(cmd, args):
         content_args.append(arg)
 
     if ref:
-        if cmd not in ("show", "spec", "plan", "progress"):
+        if cmd not in ("show", "plan", "progress"):
             print("ERROR: --ref is only supported for read-only commands (show, spec, plan, progress)", file=sys.stderr)
             sys.exit(1)
         track_id = content_args[0] if content_args else None
@@ -1365,6 +1416,9 @@ def cmd_status(args):
         else:
             print(f"Unknown argument: {args[i]}", file=sys.stderr); return 1
 
+    if ref is None:
+        ref = _default_ref()
+
     def _read_kf(path):
         if ref:
             return run_git("show", f"{ref}:.agent/kf/{path}")
@@ -1401,8 +1455,8 @@ def cmd_status(args):
 
     all_entries = reg.all_entries()
     if not all_entries:
-        print("ERROR: No tracks found. Run /kf-setup first.", file=sys.stderr)
-        return 1
+        print("No tracks found. Run /kf-architect to create tracks.")
+        return 0
 
     # Count by status
     pending = sum(1 for d in all_entries.values() if d.get("status") == "pending")
@@ -1923,6 +1977,659 @@ def cmd_stash(args):
     return 0
 
 
+def cmd_claim(args):
+    """All-in-one: validate track, check deps, acquire claim.
+
+    Single command replacing the multi-step preflight → get → deps check → claim
+    sequence. Returns structured output for the agent to consume.
+
+    Exit codes:
+        0  Success — track claimed, ready to implement
+        1  Error — track not found, already completed, deps blocked, claim held
+    """
+    track_id = None
+    i = 0
+    while i < len(args):
+        if args[i].startswith("-"):
+            print(f"Unknown option: {args[i]}", file=sys.stderr); return 1
+        else:
+            track_id = args[i]; i += 1
+
+    if not track_id:
+        print("Usage: kf-track claim <track-id>", file=sys.stderr)
+        return 1
+
+    # 1. Resolve primary branch from config
+    primary = _config_get_value("primary_branch") or "main"
+
+    # 2. Load registry from primary branch
+    ref_reg = TracksRegistry.from_ref(primary)
+    track_data = ref_reg.get(track_id)
+
+    if track_data is None:
+        print(f"ERROR: Track not found: {track_id}", file=sys.stderr)
+        print("", file=sys.stderr)
+        # Show available tracks
+        active = ref_reg.list_active()
+        if active:
+            print("Available tracks:", file=sys.stderr)
+            for tid in sorted(active.keys()):
+                d = active[tid]
+                print(f"  {tid:<50} {d.get('status',''):<13} {d.get('title','')}", file=sys.stderr)
+        else:
+            print("No active tracks found.", file=sys.stderr)
+        return 1
+
+    status = track_data.get("status", "")
+    if status in ("completed", "archived"):
+        print(f"ERROR: Track already {status}: {track_id}", file=sys.stderr)
+        return 1
+
+    # 3. Check dependencies
+    deps = ref_reg.get_deps(track_id)
+    if deps:
+        blocked_deps = []
+        for dep in deps:
+            dep_status = ref_reg.get_field(dep, "status") or "unknown"
+            if dep_status != "completed":
+                blocked_deps.append((dep, dep_status))
+        if blocked_deps:
+            print(f"ERROR: Dependencies not met for {track_id}", file=sys.stderr)
+            for dep, dep_status in blocked_deps:
+                print(f"  [ ] {dep} ({dep_status})", file=sys.stderr)
+            print("", file=sys.stderr)
+            print("Wait for these tracks to complete, or ask the architect to restructure.", file=sys.stderr)
+            return 1
+
+    # 4. Acquire claim via kf-claim
+    claim_script = SCRIPT_DIR / "kf-claim.py"
+    claim_result = subprocess.run(
+        [sys.executable, str(claim_script), "acquire", track_id],
+        capture_output=True, text=True
+    )
+    if claim_result.returncode != 0:
+        stderr = claim_result.stderr.strip()
+        stdout = claim_result.stdout.strip()
+        print(f"ERROR: Could not claim {track_id}", file=sys.stderr)
+        if stderr:
+            print(stderr, file=sys.stderr)
+        if stdout:
+            print(stdout, file=sys.stderr)
+        return 1
+
+    # 5. Output structured summary
+    title = track_data.get("title", "")
+    track_type = track_data.get("type", "feature")
+    deps_summary = ref_reg.dep_summary(track_id)
+
+    print(f"CLAIMED: {track_id}")
+    print(f"PRIMARY_BRANCH={primary}")
+    print(f"TITLE={title}")
+    print(f"TYPE={track_type}")
+    print(f"STATUS={status}")
+    print(f"DEPS={deps_summary}")
+
+    # Show spec refs summary if any
+    spec_refs = track_data.get("spec_refs")
+    if spec_refs and isinstance(spec_refs, list):
+        required = [r["item"] for r in spec_refs if isinstance(r, dict) and r.get("action") == "required-for"]
+        constrained = [r["item"] for r in spec_refs if isinstance(r, dict) and r.get("action") == "constrained-by"]
+        if required:
+            print(f"SPEC_REQUIRED_FOR={','.join(required)}")
+        if constrained:
+            print(f"SPEC_CONSTRAINED_BY={','.join(constrained)}")
+
+    return 0
+
+
+def _check_spec_available():
+    """Check if lib.spec is importable. Returns True if available."""
+    try:
+        import lib.spec  # noqa: F401
+        return True
+    except ImportError:
+        print("ERROR: Spec module not installed. Run /kf-update to install the latest CLI tools.", file=sys.stderr)
+        return False
+
+
+def cmd_spec(args):
+    """Spec subcommand group: show, items, fulfillment, op, validate."""
+    if not args:
+        print("Usage: kf-track spec <overview|show|items|fulfillment|op|validate> [options]", file=sys.stderr)
+        print("", file=sys.stderr)
+        print("  overview [--ref <ref>]                              Full spec overview with fulfillment", file=sys.stderr)
+        print("  show [--ref <ref>]                                 Show materialized spec", file=sys.stderr)
+        print("  items [--type product|technical] [--status ...] [--ref <ref>]   Filtered item list", file=sys.stderr)
+        print("  fulfillment [--ref <ref>]                          Readiness per item", file=sys.stderr)
+        print("  op add <item-id> --title \"...\" [--type ...]        Draft: add item", file=sys.stderr)
+        print("  op fulfilled <item-id>                              Draft: fulfill item", file=sys.stderr)
+        print("  op finalize [--description \"...\"]                  Finalize draft", file=sys.stderr)
+        print("  op discard                                         Discard draft", file=sys.stderr)
+        print("  validate <track-id> [--ref <ref>]                  Validate track spec_refs", file=sys.stderr)
+        return 1
+
+    subcmd = args[0]
+    rest = args[1:]
+
+    if not _check_spec_available():
+        return 1
+
+    if subcmd == "overview":
+        return _spec_overview(rest)
+    elif subcmd == "show":
+        return _spec_show(rest)
+    elif subcmd == "items":
+        return _spec_items(rest)
+    elif subcmd == "fulfillment":
+        return _spec_fulfillment(rest)
+    elif subcmd == "op":
+        return _spec_op(rest)
+    elif subcmd == "validate":
+        return _spec_validate(rest)
+    else:
+        print(f"Unknown spec subcommand: {subcmd}", file=sys.stderr)
+        return 1
+
+
+def _load_spec(ref=None):
+    """Load materialized spec from filesystem or git ref.
+
+    Auto-resolves ref from config when not specified and not on primary branch.
+    """
+    from lib.spec import SpecSnapshot, materialize, load_spec_ops, load_spec_ops_from_ref
+
+    if ref is None:
+        ref = _default_ref()
+
+    spec_yaml = KF_DIR / "spec.yaml"
+    spec_dir = KF_DIR / "spec"
+
+    if ref:
+        text = run_git("show", f"{ref}:.agent/kf/spec.yaml")
+        if not text:
+            return None
+        snapshot = SpecSnapshot.from_text(text)
+        ops = load_spec_ops_from_ref(ref)
+    else:
+        if not spec_yaml.exists():
+            return None
+        snapshot = SpecSnapshot.load(spec_yaml)
+        ops = load_spec_ops(spec_dir)
+
+    return materialize(snapshot, ops)
+
+
+def _spec_overview(args):
+    """Full spec overview: items grouped by type with fulfillment inline."""
+    ref = None
+    i = 0
+    while i < len(args):
+        if args[i] == "--ref":
+            ref = args[i + 1]; i += 2
+        elif args[i].startswith("-"):
+            print(f"Unknown option: {args[i]}", file=sys.stderr); return 1
+        else:
+            print(f"Unknown argument: {args[i]}", file=sys.stderr); return 1
+
+    spec = _load_spec(ref)
+    if spec is None:
+        print("(no spec.yaml found — run /kf-setup to create one)")
+        return 0
+
+    items = spec.items
+    if not items:
+        print("(spec exists but has no items)")
+        return 0
+
+    from lib.spec import fulfillment_status
+
+    if ref:
+        reg = TracksRegistry.from_ref(ref)
+    else:
+        reg = _get_registry()
+
+    tracks = reg.all_entries()
+    fulfillment = fulfillment_status(spec, tracks)
+
+    # Counts
+    product_items = {k: v for k, v in items.items() if v.get("type") == "product"}
+    tech_items = {k: v for k, v in items.items() if v.get("type") == "technical"}
+
+    product_active = sum(1 for v in product_items.values() if v.get("status") == "active")
+    product_fulfilled = sum(1 for v in product_items.values() if v.get("status") == "fulfilled")
+    product_deprecated = sum(1 for v in product_items.values() if v.get("status") == "deprecated")
+    tech_active = sum(1 for v in tech_items.values() if v.get("status") == "active")
+    tech_fulfilled = sum(1 for v in tech_items.values() if v.get("status") == "fulfilled")
+
+    ready_count = sum(1 for f in fulfillment.values() if f.get("ready_for_assessment"))
+
+    print("=" * 70)
+    print("                      PRODUCT SPECIFICATION")
+    print("=" * 70)
+    print()
+    print(f"  Product items:   {len(product_items):3d}  ({product_active} active, {product_fulfilled} fulfilled, {product_deprecated} deprecated)")
+    print(f"  Technical items: {len(tech_items):3d}  ({tech_active} active, {tech_fulfilled} fulfilled)")
+    print(f"  Ready to assess: {ready_count:3d}")
+    print()
+
+    def _print_group(label, item_dict):
+        if not item_dict:
+            return
+        print(f"--- {label} ---")
+        print()
+        for item_id in sorted(item_dict.keys()):
+            data = item_dict[item_id]
+            title = data.get("title", "")
+            status = data.get("status", "active")
+            priority = data.get("priority", "")
+
+            # Fulfillment info
+            f = fulfillment.get(item_id)
+            tracks_str = ""
+            if f and f["has_requirements"]:
+                total = f["total_required"]
+                done = f["completed_required"]
+                if f["ready_for_assessment"]:
+                    tracks_str = f" [{done}/{total} tracks READY]"
+                else:
+                    tracks_str = f" [{done}/{total} tracks]"
+
+            # Status marker
+            if status == "fulfilled":
+                marker = "[x]"
+            elif status == "deprecated":
+                marker = "[-]"
+            elif f and f.get("ready_for_assessment"):
+                marker = "[!]"
+            else:
+                marker = "[ ]"
+
+            pri_str = f"({priority})" if priority else ""
+            print(f"  {marker} {item_id:<38} {pri_str:<10} {title}{tracks_str}")
+
+        print()
+
+    _print_group("Product Items (WHAT)", product_items)
+    _print_group("Technical Items (HOW)", tech_items)
+
+    # Legend
+    print("Legend: [x] fulfilled  [!] ready to assess  [ ] active  [-] deprecated")
+    print("=" * 70)
+    return 0
+
+
+def _spec_show(args):
+    ref = None
+    i = 0
+    while i < len(args):
+        if args[i] == "--ref":
+            ref = args[i + 1]; i += 2
+        elif args[i].startswith("-"):
+            print(f"Unknown option: {args[i]}", file=sys.stderr); return 1
+        else:
+            print(f"Unknown argument: {args[i]}", file=sys.stderr); return 1
+
+    spec = _load_spec(ref)
+    if spec is None:
+        print("(no spec.yaml found — run /kf-setup to create one)")
+        return 0
+
+    items = spec.items
+    if not items:
+        print("(spec exists but has no items)")
+        return 0
+
+    # Group by type
+    product_items = {k: v for k, v in items.items() if v.get("type") == "product"}
+    tech_items = {k: v for k, v in items.items() if v.get("type") == "technical"}
+    other_items = {k: v for k, v in items.items()
+                   if v.get("type") not in ("product", "technical")}
+
+    def _print_items(label, item_dict):
+        if not item_dict:
+            return
+        print(f"\n{label}:")
+        print(f"  {'ID':<40} {'STATUS':<12} {'PRIORITY':<10} TITLE")
+        print(f"  {'--':<40} {'------':<12} {'--------':<10} -----")
+        for item_id in sorted(item_dict.keys()):
+            data = item_dict[item_id]
+            title = data.get("title", "")
+            status = data.get("status", "")
+            priority = data.get("priority", "")
+            if len(title) > 40:
+                title = title[:37] + "..."
+            print(f"  {item_id:<40} {status:<12} {priority:<10} {title}")
+
+    print(f"Spec: {len(items)} item(s)")
+    _print_items("Product Items (WHAT)", product_items)
+    _print_items("Technical Items (HOW)", tech_items)
+    _print_items("Other Items", other_items)
+    print()
+    return 0
+
+
+def _spec_items(args):
+    ref = None
+    filter_type = None
+    filter_status = None
+
+    i = 0
+    while i < len(args):
+        if args[i] == "--ref":
+            ref = args[i + 1]; i += 2
+        elif args[i] == "--type":
+            filter_type = args[i + 1]; i += 2
+        elif args[i] == "--status":
+            filter_status = args[i + 1]; i += 2
+        elif args[i].startswith("-"):
+            print(f"Unknown option: {args[i]}", file=sys.stderr); return 1
+        else:
+            print(f"Unknown argument: {args[i]}", file=sys.stderr); return 1
+
+    spec = _load_spec(ref)
+    if spec is None:
+        print("(no spec.yaml found)")
+        return 0
+
+    items = spec.items
+    if filter_type:
+        items = {k: v for k, v in items.items() if v.get("type") == filter_type}
+    if filter_status:
+        items = {k: v for k, v in items.items() if v.get("status") == filter_status}
+
+    if not items:
+        print("(no items match filter)")
+        return 0
+
+    print(f"{'ID':<40} {'TYPE':<12} {'STATUS':<12} {'PRIORITY':<10} TITLE")
+    print(f"{'--':<40} {'----':<12} {'------':<12} {'--------':<10} -----")
+    for item_id in sorted(items.keys()):
+        data = items[item_id]
+        title = data.get("title", "")
+        itype = data.get("type", "")
+        status = data.get("status", "")
+        priority = data.get("priority", "")
+        if len(title) > 40:
+            title = title[:37] + "..."
+        print(f"{item_id:<40} {itype:<12} {status:<12} {priority:<10} {title}")
+
+    print(f"\n{len(items)} item(s)")
+    return 0
+
+
+def _spec_fulfillment(args):
+    ref = None
+    i = 0
+    while i < len(args):
+        if args[i] == "--ref":
+            ref = args[i + 1]; i += 2
+        elif args[i].startswith("-"):
+            print(f"Unknown option: {args[i]}", file=sys.stderr); return 1
+        else:
+            print(f"Unknown argument: {args[i]}", file=sys.stderr); return 1
+
+    spec = _load_spec(ref)
+    if spec is None:
+        print("(no spec.yaml found)")
+        return 0
+
+    from lib.spec import fulfillment_status
+
+    if ref:
+        reg = TracksRegistry.from_ref(ref)
+    else:
+        reg = _get_registry()
+
+    tracks = reg.all_entries()
+    fulfillment = fulfillment_status(spec, tracks)
+
+    if not fulfillment:
+        print("(no active spec items)")
+        return 0
+
+    ready_count = 0
+    print(f"{'ITEM':<40} {'TYPE':<10} {'STATUS':<12} {'REQUIRED':<12} ASSESSMENT")
+    print(f"{'----':<40} {'----':<10} {'------':<12} {'--------':<12} ----------")
+    for item_id in sorted(fulfillment.keys()):
+        f = fulfillment[item_id]
+        itype = f.get("type", "")
+        status = f.get("status", "")
+        total = f["total_required"]
+        completed = f["completed_required"]
+        ready = f["ready_for_assessment"]
+        has_reqs = f["has_requirements"]
+
+        if ready:
+            ready_count += 1
+            assessment = "READY"
+        elif has_reqs:
+            assessment = f"{completed}/{total} done"
+        elif status == "fulfilled":
+            assessment = "fulfilled"
+        else:
+            assessment = "no tracks"
+
+        req_str = f"{completed}/{total}" if has_reqs else "-"
+        print(f"{item_id:<40} {itype:<10} {status:<12} {req_str:<12} {assessment}")
+
+    print(f"\n{len(fulfillment)} item(s), {ready_count} ready for assessment")
+    return 0
+
+
+def _spec_op(args):
+    if not args:
+        print("Usage: kf-track spec op <add|fulfilled|finalize|discard> [options]", file=sys.stderr)
+        return 1
+
+    subcmd = args[0]
+    rest = args[1:]
+
+    if subcmd == "add":
+        return _spec_op_add(rest)
+    elif subcmd == "fulfilled":
+        return _spec_op_fulfilled(rest)
+    elif subcmd == "finalize":
+        return _spec_op_finalize(rest)
+    elif subcmd == "discard":
+        return _spec_op_discard(rest)
+    else:
+        print(f"Unknown spec op subcommand: {subcmd}", file=sys.stderr)
+        return 1
+
+
+def _get_holder():
+    """Get the current holder name (worktree/cwd basename)."""
+    return os.path.basename(os.getcwd())
+
+
+def _spec_op_add(args):
+    item_id = None
+    title = ""
+    item_type = ""
+    priority = "medium"
+    description = ""
+
+    i = 0
+    while i < len(args):
+        if args[i] == "--title":
+            title = args[i + 1]; i += 2
+        elif args[i] == "--type":
+            item_type = args[i + 1]; i += 2
+        elif args[i] == "--priority":
+            priority = args[i + 1]; i += 2
+        elif args[i] == "--description":
+            description = args[i + 1]; i += 2
+        elif args[i].startswith("-"):
+            print(f"Unknown option: {args[i]}", file=sys.stderr); return 1
+        else:
+            item_id = args[i]; i += 1
+
+    if not item_id:
+        print('Usage: kf-track spec op add <item-id> --title "..." [--type product|technical] [--priority high|medium|low] [--description "..."]', file=sys.stderr)
+        return 1
+    if not title:
+        print("ERROR: --title is required", file=sys.stderr)
+        return 1
+
+    from lib.spec import draft_add
+    spec_dir = KF_DIR / "spec"
+
+    kwargs = {"title": title}
+    if item_type:
+        kwargs["type"] = item_type
+    if priority:
+        kwargs["priority"] = priority
+    if description:
+        kwargs["description"] = description
+
+    holder = _get_holder()
+    path = draft_add(spec_dir, holder, "added", item_id, **kwargs)
+    print(f"Draft: added 'added {item_id}' to {path.name}")
+    return 0
+
+
+def _spec_op_fulfilled(args):
+    if not args:
+        print("Usage: kf-track spec op fulfilled <item-id>", file=sys.stderr)
+        return 1
+
+    item_id = args[0]
+    from lib.spec import draft_add
+    spec_dir = KF_DIR / "spec"
+    holder = _get_holder()
+    path = draft_add(spec_dir, holder, "fulfilled", item_id)
+    print(f"Draft: added 'fulfilled {item_id}' to {path.name}")
+    return 0
+
+
+def _spec_op_finalize(args):
+    description = ""
+    i = 0
+    while i < len(args):
+        if args[i] == "--description":
+            description = args[i + 1]; i += 2
+        elif args[i].startswith("-"):
+            print(f"Unknown option: {args[i]}", file=sys.stderr); return 1
+        else:
+            print(f"Unknown argument: {args[i]}", file=sys.stderr); return 1
+
+    from lib.spec import draft_finalize
+    spec_dir = KF_DIR / "spec"
+    holder = _get_holder()
+    path = draft_finalize(spec_dir, holder, description=description)
+    if path is None:
+        print(f"No draft found for holder '{holder}'")
+        return 1
+    print(f"Finalized draft to: {path.name}")
+    return 0
+
+
+def _spec_op_discard(args):
+    from lib.spec import draft_discard
+    spec_dir = KF_DIR / "spec"
+    holder = _get_holder()
+    if draft_discard(spec_dir, holder):
+        print(f"Discarded draft for holder '{holder}'")
+    else:
+        print(f"No draft found for holder '{holder}'")
+    return 0
+
+
+def _spec_validate(args):
+    track_id = None
+    ref = None
+
+    i = 0
+    while i < len(args):
+        if args[i] == "--ref":
+            ref = args[i + 1]; i += 2
+        elif args[i].startswith("-"):
+            print(f"Unknown option: {args[i]}", file=sys.stderr); return 1
+        else:
+            track_id = args[i]; i += 1
+
+    if not track_id:
+        print("Usage: kf-track spec validate <track-id> [--ref <branch>]", file=sys.stderr)
+        return 1
+
+    spec = _load_spec(ref)
+    if spec is None:
+        print("(no spec.yaml found — skipping validation)")
+        return 0
+
+    if ref:
+        reg = TracksRegistry.from_ref(ref)
+    else:
+        reg = _get_registry()
+
+    track_data = reg.get(track_id)
+    if track_data is None:
+        print(f"ERROR: Track not found: {track_id}", file=sys.stderr)
+        return 1
+
+    spec_refs = track_data.get("spec_refs")
+    if not spec_refs:
+        print(f"Track {track_id} has no spec_refs — nothing to validate")
+        return 0
+
+    from lib.spec import validate_spec_refs, spec_refs_for_track, fulfillment_status
+
+    # Show enriched refs
+    enriched = spec_refs_for_track(track_data, spec)
+    if enriched:
+        print(f"Spec references for {track_id}:")
+        for ref_info in enriched:
+            action = ref_info["action"]
+            item = ref_info["item"]
+            item_title = ref_info.get("item_title", "")
+            item_status = ref_info.get("item_status", "")
+            suffix = f" [{item_status}]" if item_status else ""
+            title_str = f" — {item_title}" if item_title else ""
+            print(f"  {action:<16} {item}{title_str}{suffix}")
+        print()
+
+    # Validate
+    errors = validate_spec_refs(spec, spec_refs)
+    if errors:
+        print("Validation errors:")
+        for err in errors:
+            print(f"  ERROR: {err}")
+        return 1
+    else:
+        print("Validation: OK")
+
+    # Check fulfillment readiness for required-for items
+    required_for_items = [
+        r["item"] for r in spec_refs
+        if isinstance(r, dict) and r.get("action") == "required-for" and r.get("item")
+    ]
+    if required_for_items:
+        tracks = reg.all_entries()
+        fulfillment = fulfillment_status(spec, tracks)
+        ready_items = []
+        not_ready_items = []
+        for item_id in required_for_items:
+            f = fulfillment.get(item_id)
+            if not f:
+                continue
+            if f.get("status") == "fulfilled":
+                continue  # already fulfilled, skip
+            if f["ready_for_assessment"]:
+                ready_items.append((item_id, f))
+            elif f["has_requirements"]:
+                not_ready_items.append((item_id, f))
+
+        if ready_items or not_ready_items:
+            print()
+            print("Fulfillment status for required-for items:")
+            for item_id, f in ready_items:
+                print(f"  READY   {item_id} — all {f['total_required']} required track(s) completed")
+            for item_id, f in not_ready_items:
+                print(f"  PENDING {item_id} — {f['completed_required']}/{f['total_required']} required track(s) completed")
+
+    return 0
+
+
 def cmd_help():
     print("""kf-track \u2014 Track registry management for Kiloforge agents
 
@@ -1930,7 +2637,8 @@ USAGE:
   kf-track <command> [arguments]
 
 COMMANDS:
-  add <id> --title "..." [--type ...] [--deps "a,b"]   Add a new track
+  add <id> --title "..." [--type ...] [--deps "a,b"] [--spec-refs '[...]']   Add a new track
+  claim <id>                                            Validate + check deps + acquire claim (one step)
   update <id> --status <status>                         Update track status
   set <id> --<field> <value>                            Set arbitrary metadata field
   get <id> [--ref <branch|commit>]                       Show track details + deps
@@ -1973,6 +2681,16 @@ COMMANDS:
   stash list [track-id]                                 List stash branches
   stash save <track-id>                                 Save current work to stash branch
   stash clean <track-id>                                Delete stash branches for a track
+
+  spec overview [--ref <ref>]                              Full spec overview with fulfillment
+  spec show [--ref <ref>]                                 Show materialized spec
+  spec items [--type product|technical] [--status ...]    Filtered item list
+  spec fulfillment [--ref <ref>]                          Readiness per item
+  spec op add <item-id> --title "..." [--type ...]        Draft: add item
+  spec op fulfilled <item-id>                              Draft: fulfill item
+  spec op finalize [--description "..."]                  Finalize draft
+  spec op discard                                         Discard draft
+  spec validate <track-id> [--ref <ref>]                  Validate track spec_refs
 
   status [--ref <branch|commit>]                          Full project status report
   index [--ref <branch|commit>]                          Generate project index
@@ -2079,6 +2797,7 @@ def main():
         "set": lambda: cmd_set(rest),
         "get": lambda: cmd_get(rest),
         "list": lambda: cmd_list(rest),
+        "claim": lambda: cmd_claim(rest),
         "approve": lambda: cmd_approve(rest),
         "disapprove": lambda: cmd_disapprove(rest),
         "archive": lambda: cmd_archive(rest),
@@ -2090,13 +2809,14 @@ def main():
         "quick-links": lambda: cmd_quick_links(rest),
         "status": lambda: cmd_status(rest),
         "config": lambda: cmd_config(rest),
+        "spec": lambda: cmd_spec(rest),
         "migrate-meta": lambda: cmd_migrate_meta(rest),
         "help": lambda: cmd_help(),
         "--help": lambda: cmd_help(),
         "-h": lambda: cmd_help(),
     }
 
-    content_cmds = {"show", "spec", "plan", "task", "progress", "extra", "init", "migrate", "migrate-all"}
+    content_cmds = {"show", "plan", "task", "progress", "extra", "init", "migrate", "migrate-all"}
 
     if cmd in dispatch:
         rc = dispatch[cmd]()

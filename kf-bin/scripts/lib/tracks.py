@@ -38,7 +38,7 @@ from typing import Optional
 
 META_FIELDS = ["title", "status", "type", "approved", "created", "updated"]
 META_FIELDS_OPTIONAL = ["archived_at", "archive_reason"]
-META_FIELDS_LISTS = ["deps", "conflicts"]
+META_FIELDS_LISTS = ["deps", "conflicts", "spec_refs"]
 
 # Legacy tracks.yaml support
 LEGACY_CANONICAL = ["title", "status", "type", "created", "updated"]
@@ -174,23 +174,23 @@ class TracksRegistry:
 
         result = subprocess.run(
             ["git", "cat-file", "--batch"],
-            input=object_specs,
-            capture_output=True, text=True, check=False,
+            input=object_specs.encode(),
+            capture_output=True, check=False,
         )
 
         if result.returncode != 0:
             return cls._from_ref_legacy(ref, tracks_dir_rel)
 
-        # Step 3: parse batch output
+        # Step 3: parse batch output (bytes mode — sizes are byte counts)
         output = result.stdout
         pos = 0
         has_any_meta = False
         for tid in track_ids:
             # Find header line ending with newline
-            nl = output.find("\n", pos)
+            nl = output.find(b"\n", pos)
             if nl == -1:
                 break
-            header = output[pos:nl]
+            header = output[pos:nl].decode("utf-8", errors="replace")
             pos = nl + 1
 
             if "missing" in header:
@@ -205,10 +205,10 @@ class TracksRegistry:
             except (ValueError, IndexError):
                 continue
 
-            content = output[pos:pos + size]
+            content = output[pos:pos + size].decode("utf-8", errors="replace")
             pos += size
             # Skip trailing newline after content
-            if pos < len(output) and output[pos] == "\n":
+            if pos < len(output) and output[pos:pos + 1] == b"\n":
                 pos += 1
 
             try:
@@ -249,6 +249,8 @@ class TracksRegistry:
                 track_id = line[:colon_idx].strip()
                 json_str = line[colon_idx + 1:].strip()
                 data = json.loads(json_str)
+                if not isinstance(data, dict):
+                    continue
                 # Initialize deps/conflicts lists
                 if "deps" not in data:
                     data["deps"] = []
@@ -319,7 +321,7 @@ class TracksRegistry:
         reg._entries = {}
         reg._dirty = set()
 
-        # Parse tracks.yaml
+        # Parse tracks.yaml (legacy JSON-per-line format)
         if tracks_file.exists():
             for line in tracks_file.read_text().splitlines():
                 if not line or line.startswith("#"):
@@ -329,6 +331,8 @@ class TracksRegistry:
                     tid = line[:ci].strip()
                     jstr = line[ci + 1:].strip()
                     data = json.loads(jstr)
+                    if not isinstance(data, dict):
+                        continue
                     data.setdefault("deps", [])
                     data.setdefault("conflicts", [])
                     reg._entries[tid] = data
@@ -485,7 +489,8 @@ class TracksRegistry:
 
     def add(self, track_id: str, title: str, type_: str = "feature",
             status: str = "pending", deps: Optional[list[str]] = None,
-            approved: bool = False) -> dict:
+            approved: bool = False,
+            spec_refs: Optional[list[dict]] = None) -> dict:
         if track_id in self._entries:
             raise ValueError(f"Track already exists: {track_id}")
         created = today_iso()
@@ -499,6 +504,8 @@ class TracksRegistry:
         }
         if deps:
             entry["deps"] = list(deps)
+        if spec_refs:
+            entry["spec_refs"] = list(spec_refs)
         self._entries[track_id] = entry
         self._dirty.add(track_id)
         return entry

@@ -260,12 +260,12 @@ After successful git reverts, update track.yaml:
 
 ### If reverting entire track:
 
-- In tracks.yaml: Change status to `pending`
+- Run: `~/.kf/bin/kf-track.py update {trackId} --status pending`
 - Consider offering to delete the track directory entirely
 
 ### If reverting to incomplete state:
 
-- In tracks.yaml: Ensure status is `in-progress` if partially complete, `pending` if fully reverted
+- Update status via: `~/.kf/bin/kf-track.py update {trackId} --status pending` (or `in-progress` if partially complete)
 
 ## Verification
 

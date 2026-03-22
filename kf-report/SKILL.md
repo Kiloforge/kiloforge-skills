@@ -59,9 +59,9 @@ Reports are written to `.agent/kf/_reports/` as markdown files.
      git show {COMMIT_SHA}:.agent/kf/tracks/_archive/{trackId}/track.yaml
      ```
    - Store recovered metadata in `$COMPACTED_TRACKS` array with fields: trackId, status, type, created, updated, tasks.total, tasks.completed, compaction_commit
-   - Also recover the tracks.yaml index at that point for track titles:
+   - Also recover track data at that point:
      ```bash
-     git show {COMMIT_SHA}:.agent/kf/tracks.yaml
+     ~/.kf/bin/kf-track.py list --all --json --ref {COMMIT_SHA}
      ```
 
 5. Determine report sections:
@@ -231,7 +231,7 @@ Group into phases with: name, date range, bullet-point highlights, commit count.
 
 ### Data Collection Procedure
 
-**Step 1:** Read `.agent/kf/tracks.yaml` and parse status field from JSON values: `completed`, `in-progress`, `pending`, `archived`
+**Step 1:** Run `~/.kf/bin/kf-track.py list --all --json` and parse status field from JSON values: `completed`, `in-progress`, `pending`, `archived`
 
 **Step 2:** Count on-disk archived tracks: `ls -d .agent/kf/tracks/_archive/*/ 2>/dev/null | wc -l`
 

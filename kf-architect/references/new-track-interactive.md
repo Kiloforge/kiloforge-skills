@@ -1,9 +1,3 @@
----
-name: kf-new-track
-description: Create a new track with specification and phased implementation plan
-metadata:
-  argument-hint: <feature|bug|chore|refactor> <name>
----
 
 # New Track
 
@@ -95,6 +89,30 @@ Does this depend on any existing code, APIs, or other tracks?
 2. Depends on existing code (specify)
 3. Depends on incomplete track (specify)
 ```
+
+**Q4b: Spec References (if spec exists)**
+
+Check if a product spec exists:
+```bash
+~/.kf/bin/kf-track.py spec show
+```
+
+If spec items exist, ask:
+```
+Which spec items does this track relate to?
+
+Product items this track helps fulfill (required-for):
+{list active product.* items from spec}
+
+Technical constraints this track must follow (constrained-by):
+{list active tech.* items from spec}
+
+Enter item IDs (comma-separated), or press enter to skip:
+  required-for:
+  constrained-by:
+```
+
+Store as `spec_refs` for use in the `kf-track add` command. Skip this question entirely if no spec exists.
 
 **Q5: Scope Boundaries**
 
@@ -319,8 +337,12 @@ After plan approval:
 3. Register in `.agent/kf/tracks.yaml`:
 
    ```bash
-   ~/.kf/bin/kf-track.py add {trackId} --title "{title}" --type {type}
+   # Include --spec-refs if the user provided spec references in Q4b
+   ~/.kf/bin/kf-track.py add {trackId} --title "{title}" --type {type} \
+     --spec-refs '[{"action":"required-for","item":"product.X"},{"action":"constrained-by","item":"tech.Y"}]'
    ```
+
+   Omit `--spec-refs` if no spec exists or the user skipped Q4b.
 
 4. If the track has dependencies on other tracks, register them:
 

@@ -581,6 +581,107 @@ class TestGitRef(unittest.TestCase):
             reg.save()
 
 
+    def test_from_ref_non_ascii_content(self):
+        """Non-ASCII chars (em dash, accents) must not corrupt batch parsing.
+
+        Regression test: git cat-file --batch reports sizes in bytes but
+        Python text mode slices by characters. Multi-byte UTF-8 chars cause
+        position drift, silently dropping tracks after the one with non-ASCII.
+        """
+        kf_dir = self.tmpdir / ".agent" / "kf"
+        tracks_dir = kf_dir / "tracks"
+        tracks_dir.mkdir(parents=True)
+
+        # Track A: ASCII only
+        (tracks_dir / "track-a_20260322000000Z").mkdir()
+        (tracks_dir / "track-a_20260322000000Z" / "meta.yaml").write_text(
+            'title: "Track A"\nstatus: pending\ntype: feature\n'
+            'created: "2026-03-22"\nupdated: "2026-03-22"\n'
+        )
+
+        # Track B: contains em dash (—), accented chars (é), and other multi-byte
+        (tracks_dir / "track-b_20260322000001Z").mkdir()
+        (tracks_dir / "track-b_20260322000001Z" / "meta.yaml").write_text(
+            'title: "Track B"\nstatus: pending\ntype: feature\n'
+            'created: "2026-03-22"\nupdated: "2026-03-22"\n'
+            'conflicts:\n'
+            '- peer: track-a_20260322000000Z\n'
+            '  risk: medium\n'
+            '  note: "Both touch adapters — different areas but potential merge conflicts"\n'
+            '  added: "2026-03-22"\n'
+        )
+
+        # Track C: after the non-ASCII track — this is the one that gets dropped
+        (tracks_dir / "track-c_20260322000002Z").mkdir()
+        (tracks_dir / "track-c_20260322000002Z" / "meta.yaml").write_text(
+            'title: "Track C — the résumé endpoint"\nstatus: pending\ntype: feature\n'
+            'created: "2026-03-22"\nupdated: "2026-03-22"\n'
+        )
+
+        subprocess.run(["git", "add", "."], capture_output=True, check=True)
+        subprocess.run(["git", "commit", "-m", "tracks with non-ascii"],
+                       capture_output=True, check=True)
+
+        reg = TracksRegistry.from_ref("HEAD")
+        self.assertEqual(len(reg.ids()), 3,
+                         f"Expected 3 tracks but got {len(reg.ids())}: {reg.ids()}")
+        self.assertIn("track-a_20260322000000Z", reg.ids())
+        self.assertIn("track-b_20260322000001Z", reg.ids())
+        self.assertIn("track-c_20260322000002Z", reg.ids())
+
+        # Verify content survived
+        b = reg.get("track-b_20260322000001Z")
+        self.assertIsNotNone(b)
+        self.assertEqual(len(b.get("conflicts", [])), 1)
+        self.assertIn("—", b["conflicts"][0]["note"])
+
+        c = reg.get("track-c_20260322000002Z")
+        self.assertIsNotNone(c)
+        self.assertIn("résumé", c["title"])
+
+    def test_from_ref_mixed_missing_and_non_ascii(self):
+        """Tracks without meta.yaml followed by non-ASCII tracks.
+
+        This is the exact scenario that caused the original bug:
+        some dirs have no meta.yaml (missing), then a track with
+        multi-byte chars, then more tracks after it.
+        """
+        kf_dir = self.tmpdir / ".agent" / "kf"
+        tracks_dir = kf_dir / "tracks"
+        tracks_dir.mkdir(parents=True)
+
+        # Track with no meta.yaml (just track.yaml content)
+        (tracks_dir / "legacy-track_20260320000000Z").mkdir()
+        (tracks_dir / "legacy-track_20260320000000Z" / "track.yaml").write_text(
+            'id: legacy\ntitle: "Legacy"\n'
+        )
+
+        # Track with non-ASCII meta.yaml
+        (tracks_dir / "new-track_20260322000001Z").mkdir()
+        (tracks_dir / "new-track_20260322000001Z" / "meta.yaml").write_text(
+            'title: "Héllo wörld — special chars"\nstatus: pending\ntype: feature\n'
+            'created: "2026-03-22"\nupdated: "2026-03-22"\n'
+        )
+
+        # Track after the non-ASCII one
+        (tracks_dir / "post-track_20260322000002Z").mkdir()
+        (tracks_dir / "post-track_20260322000002Z" / "meta.yaml").write_text(
+            'title: "Post track"\nstatus: pending\ntype: feature\n'
+            'created: "2026-03-22"\nupdated: "2026-03-22"\n'
+        )
+
+        subprocess.run(["git", "add", "."], capture_output=True, check=True)
+        subprocess.run(["git", "commit", "-m", "mixed"],
+                       capture_output=True, check=True)
+
+        reg = TracksRegistry.from_ref("HEAD")
+        # legacy-track has no meta.yaml so it's skipped
+        self.assertEqual(len(reg.ids()), 2,
+                         f"Expected 2 tracks but got {len(reg.ids())}: {reg.ids()}")
+        self.assertIn("new-track_20260322000001Z", reg.ids())
+        self.assertIn("post-track_20260322000002Z", reg.ids())
+
+
 class TestSaveRoundtrip(unittest.TestCase):
     """Test save/load roundtrip preserves all data."""
 

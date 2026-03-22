@@ -1,8 +1,3 @@
----
-name: kf-bulk-archive
-description: Archive all completed tracks by moving their directories to _archive and updating tracks.yaml
----
-
 # Bulk Archive
 
 Move all completed track directories into `_archive/` and update `tracks.yaml` in a single operation.

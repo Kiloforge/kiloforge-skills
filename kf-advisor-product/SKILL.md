@@ -41,7 +41,7 @@ This advisor runs inside an existing, initialized Kiloforge project. It uses the
    - Read `.agent/kf/product.yaml` — project description, problem statement, target users, key goals
    - Read `.agent/kf/product-guidelines.yaml` — design principles, voice and tone
    - Read `.agent/kf/tech-stack.yaml` — technology choices and constraints
-   - Read `.agent/kf/tracks.yaml` — current track statuses for understanding project maturity
+   - Run `~/.kf/bin/kf-track.py list --all` — current track statuses for understanding project maturity
 
 3. **Ensure output directory exists:**
    ```bash

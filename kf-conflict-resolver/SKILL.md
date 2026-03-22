@@ -171,7 +171,7 @@ List all conflicted files. Categorize them:
 |----------|--------|
 | Binary files | **Escalate immediately** — cannot auto-resolve |
 | Generated files (e.g., `go.sum`, `package-lock.json`) | Regenerate after resolving source files |
-| Track state files (`.agent/kf/tracks.yaml`, `deps.yaml`, `conflicts.yaml`) | Accept remote version, re-apply local track updates |
+| Track state files (`.agent/kf/tracks/{id}/meta.yaml`) | Accept remote version, re-apply local track updates |
 | Source code files | Analyze and resolve intelligently |
 
 ### Step 8 — Resolve track state files
@@ -180,7 +180,7 @@ Track state files are append/update structures. The remote version is ground tru
 
 ```bash
 # Accept remote version for all track state files
-for f in .agent/kf/tracks.yaml .agent/kf/tracks/deps.yaml .agent/kf/tracks/conflicts.yaml; do
+for f in $(find .agent/kf/tracks -name meta.yaml); do
   if git diff --name-only --diff-filter=U | grep -q "$f"; then
     git checkout --theirs "$f"
     git add "$f"

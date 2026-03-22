@@ -1,46 +1,86 @@
 ---
 name: kf-manage
-description: "Manage track lifecycle: archive, restore, delete, rename, and cleanup"
+description: "Manage track lifecycle: archive, bulk-archive, compact, restore, delete, rename, and cleanup"
 metadata:
-  argument-hint: "[--archive | --restore | --delete | --rename | --list | --cleanup]"
+  argument-hint: "<archive|bulk-archive|compact|restore|delete|rename|cleanup> [track-id]"
 ---
 
 # Track Manager
 
-Manage the complete track lifecycle including archiving, restoring, deleting, renaming, and cleaning up orphaned artifacts.
+Manage the complete track lifecycle including archiving, bulk-archiving, compacting, restoring, deleting, renaming, and cleaning up orphaned artifacts.
 
 ## Use this skill when
 
-- Archiving, restoring, renaming, or deleting Kiloforge tracks
-- Listing track status or cleaning orphaned artifacts
-- Managing the track lifecycle across active, completed, and archived states
+- Archiving individual or all completed tracks
+- Compacting archived track directories to reclaim space
+- Restoring, renaming, or deleting tracks
+- Cleaning up orphaned artifacts
 
 ## Do not use this skill when
 
-- Kiloforge is not initialized in the repository
-- You lack permission to modify track metadata or files
-- The task is unrelated to Kiloforge track management
+- The project has no Kiloforge artifacts (use `/kf-setup` first)
+- You need to create tracks (use `/kf-architect`)
+- You need to implement tracks (use `/kf-developer`)
 
 ## Pre-flight
 
-1. Run pre-flight check:
-   ```bash
-   eval "$(~/.kf/bin/kf-preflight.py)"
-   ```
-   This verifies all required metadata files exist on the primary branch and sets `PRIMARY_BRANCH`. If it fails, it prints an error suggesting `/kf-setup` — **HALT.**
+```bash
+eval "$(~/.kf/bin/kf-preflight.py)"
+```
 
-## Instructions
+## Operations
 
-- Determine the operation mode from arguments or interactive prompts.
-- Confirm destructive actions (delete/cleanup) before applying.
-- Use `~/.kf/bin/kf-track.py` CLI to update `tracks.yaml` and track metadata consistently.
-- If detailed steps are required, open `resources/implementation-playbook.md`.
+### archive <track-id> [reason]
+
+Archive a single track:
+```bash
+~/.kf/bin/kf-track.py archive {trackId} [reason]
+```
+
+### bulk-archive
+
+Archive all completed tracks at once. See `references/bulk-archive.md` for the full workflow:
+1. Identify completed tracks via `kf-track list --status completed`
+2. Archive each with `kf-track archive`
+3. Commit and merge to primary branch
+
+### compact
+
+Remove archived/completed track directories while preserving recovery via git history. See `references/compact-archive.md` for the full workflow:
+```bash
+~/.kf/bin/kf-track.py compact run [--dry-run]
+~/.kf/bin/kf-track.py compact list
+~/.kf/bin/kf-track.py compact recover <name>
+```
+
+### restore <track-id>
+
+Restore a track from archive or compaction:
+- From `_archive/`: move directory back to `tracks/`
+- From compaction: use `kf-track compact recover <name>` to extract, then copy back
+
+### delete <track-id>
+
+Remove a track entirely. Confirm with user before proceeding:
+```bash
+~/.kf/bin/kf-track.py archive {trackId} "deleted"
+rm -rf .agent/kf/tracks/{trackId}/
+```
+
+### rename <old-id> <new-id>
+
+Rename a track (move directory, update registry).
+
+### cleanup
+
+Find and report orphaned artifacts:
+- Track directories without registry entries
+- Registry entries without directories
+- Stale conflict pairs
+- Completed tracks not yet archived
 
 ## Safety
 
-- Backup track data before delete operations.
-- Avoid removing archived tracks without explicit approval.
-
-## Resources
-
-- `resources/implementation-playbook.md` for detailed modes, prompts, and workflows.
+- Confirm destructive actions (delete/cleanup) before applying
+- Use `--dry-run` for compact operations when available
+- Always commit after state changes
