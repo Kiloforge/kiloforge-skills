@@ -97,7 +97,7 @@ This command does everything in one step:
 **CRITICAL — Primary branch usage:**
 - The `claim` output includes `PRIMARY_BRANCH=<value>`. Use this value for ALL subsequent commands.
 - **NEVER hardcode `main`** — always use `${PRIMARY_BRANCH}` from the claim output.
-- **NEVER read local `.agent/kf/` files directly** — your worktree is stale. Always use `--ref ${PRIMARY_BRANCH}` or `git show ${PRIMARY_BRANCH}:<path>`.
+- Prefer `--ref ${PRIMARY_BRANCH}` for read-only commands when in a worktree, but the scripts auto-resolve refs when on the primary branch.
 - Implementation branches are always created from `${PRIMARY_BRANCH}`.
 
 ### Step 2 — Enter developer mode
@@ -446,7 +446,7 @@ Detection is automatic. Run `kf-merge-lock status` to inspect current lock state
 ## Critical Rules
 
 1. **ALWAYS validate before implementing** — never start work on an invalid or claimed track
-2. **ALWAYS use `${PRIMARY_BRANCH}` from claim output** — NEVER hardcode `main` or `master`. NEVER read local `.agent/kf/` files directly — always `--ref ${PRIMARY_BRANCH}` or `git show ${PRIMARY_BRANCH}:<path>`
+2. **ALWAYS use `${PRIMARY_BRANCH}` from claim output** — NEVER hardcode `main` or `master`. For read-only commands (`list`, `get`, `spec`), prefer `--ref ${PRIMARY_BRANCH}` when running in a worktree. The scripts auto-resolve the correct ref when on the primary branch.
 3. **NEVER push to remote** — all branches are local only
 4. **Auto-merge is the default** — only pause for explicit "merge" command when `--disable-auto-merge` is provided
 5. **ALWAYS verify after rebase** — full verification after rebase, before merge

@@ -376,8 +376,6 @@ def _default_ref() -> Optional[str]:
     Returns None if we're on the primary branch (local reads are fine),
     or if config doesn't exist yet (fresh setup).
     """
-    if not CONFIG_FILE.exists():
-        return None  # Fresh setup — no config yet, use local files
     try:
         primary = _config_get_value("primary_branch") or "main"
         current = subprocess.run(
@@ -1798,7 +1796,11 @@ def cmd_config(args):
 
 
 def _config_get_value(key):
-    """Read a config value, applying default if missing."""
+    """Read a config value, applying default if missing.
+
+    Tries local config.yaml first, then falls back to git show HEAD:
+    so worktrees that don't have the file locally still resolve correctly.
+    """
     default_val = None
     cfg_type = None
     for k, t, d in _CONFIG_SCHEMA:
@@ -1811,12 +1813,22 @@ def _config_get_value(key):
         print(f"ERROR: Unknown config key: {key}", file=sys.stderr)
         return None
 
-    if not CONFIG_FILE.exists():
-        return default_val
+    # Try local file first
+    lines = read_file_lines(CONFIG_FILE) if CONFIG_FILE.exists() else []
 
-    for line in read_file_lines(CONFIG_FILE):
+    # Fall back to git show HEAD: when local file is missing (worktree case)
+    if not lines:
+        config_rel = ".agent/kf/config.yaml"
+        git_content = run_git("show", f"HEAD:{config_rel}")
+        if git_content:
+            lines = git_content.splitlines()
+
+    for line in lines:
         if line.startswith(f"{key}:"):
             val = line.split(":", 1)[1].strip()
+            # Strip surrounding quotes if present
+            if len(val) >= 2 and val[0] == val[-1] and val[0] in ('"', "'"):
+                val = val[1:-1]
             return val if val else default_val
 
     return default_val
