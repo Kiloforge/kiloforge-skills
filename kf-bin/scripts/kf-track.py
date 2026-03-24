@@ -37,8 +37,23 @@ from lib.tracks import TracksRegistry
 
 # --- Config ---
 SCRIPT_DIR = Path(__file__).resolve().parent
-# Scripts live globally at ~/.kf/bin/; KF_DIR is the project's .agent/kf/ (resolved from cwd)
-KF_DIR = Path(os.environ["KF_DIR"]) if "KF_DIR" in os.environ else Path.cwd() / ".agent" / "kf"
+
+
+def _resolve_kf_dir() -> Path:
+    """Resolve .agent/kf/ from git toplevel, falling back to cwd."""
+    if "KF_DIR" in os.environ:
+        return Path(os.environ["KF_DIR"])
+    try:
+        toplevel = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, check=True
+        ).stdout.strip()
+        return Path(toplevel) / ".agent" / "kf"
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return Path.cwd() / ".agent" / "kf"
+
+
+KF_DIR = _resolve_kf_dir()
 TRACKS_FILE = KF_DIR / "tracks.yaml"
 DEPS_FILE = KF_DIR / "tracks" / "deps.yaml"
 CONFLICTS_FILE = KF_DIR / "tracks" / "conflicts.yaml"
